@@ -6,6 +6,8 @@ This code is a toolbox that uses **PyTorch** for training and evaluating the **E
 
 NOTE: This PyTorch version has a slightly better result than the ones in the Torch version (used in the paper): 72.1 IoU in Val set and 69.8 IoU in test set.
 
+![Example segmentation](example_segmentation.png?raw=true "Example segmentation")
+
 ## Publications
 
 If you use this software in your research, please cite our publications:

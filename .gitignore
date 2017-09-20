@@ -1,5 +1,4 @@
 #Files
-*.png
 *.pyc
 *.pyo
 */__pycache__/
