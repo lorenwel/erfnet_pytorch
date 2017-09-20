@@ -1,6 +1,6 @@
 # ERFNet (PyTorch version)
 
-This code is a toolbox that uses **PyTorch** for training and evaluating the **ERFNet** architecture. 
+This code is a toolbox that uses **PyTorch** for training and evaluating the **ERFNet** architecture for semantic segmentation.
 
 **For the Original Torch version please go [HERE](https://github.com/Eromera/erfnet)**
 
