@@ -11,10 +11,9 @@ PyTorch code for training ERFNet model on Cityscapes. The code was based initial
 For all options and defaults please see the bottom of the "main.py" file. Required ones are --savedir (name for creating a new folder with all the outputs of the training) and --datadir (path to cityscapes directory).
 
 ## Example commands
-Train encoder with 150 epochs and batch=6 and then train decoder (loads encoder trained in the same folder):
+Train encoder with 150 epochs and batch=6 and then train decoder (decoder training starts after encoder training):
 ```
 python3.6 main.py --savedir erfnet_training1 --datadir /home/datasets/cityscapes/ --num-epochs 150 --batch-size 6 
-python3.6 main.py --savedir erfnet_training1 --datadir /home/datasets/cityscapes/ --num-epochs 150 --batch-size 6 --decoder
 ```
 
 Train decoder using encoder's pretrained weights with ImageNet:
