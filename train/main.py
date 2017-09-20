@@ -547,7 +547,6 @@ def main(args):
     #CAREFUL: for some reason, after training encoder alone, the decoder gets weights=0. 
     #We must reinit decoder weights or reload network passing only encoder in order to train decoder
     print("========== DECODER TRAINING ===========")
-    #TODO: make more general (now it assumes loaded model is cuda)
     if (not args.state):
         if args.pretrainedEncoder:
             print("Loading encoder pretrained in imagenet")
@@ -555,6 +554,8 @@ def main(args):
             pretrainedEnc = torch.nn.DataParallel(ERFNet_imagenet(1000))
             pretrainedEnc.load_state_dict(torch.load(args.pretrainedEncoder)['state_dict'])
             pretrainedEnc = next(pretrainedEnc.children()).features.encoder
+            if (not args.cuda):
+                pretrainedEnc = pretrainedEnc.cpu()     #because loaded encoder is probably saved in cuda
         else:
             pretrainedEnc = next(model.children()).encoder
         model = model_file.Net(NUM_CLASSES, encoder=pretrainedEnc)  #Add decoder to encoder
