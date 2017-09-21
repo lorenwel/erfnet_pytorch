@@ -16,6 +16,7 @@ This code can be used to produce segmentation of the Cityscapes images in color 
 **Examples:**
 ```
 python3.6 eval_cityscapes_color.py --datadir /home/datasets/cityscapes/ --subset val
+```
 
 ## eval_cityscapes_server.py 
 
