@@ -1,4 +1,4 @@
-# Code to produce segmentation output in Pytorch for all cityscapes subset 
+# Code to produce colored segmentation output in Pytorch for all cityscapes subsets  
 # Sept 2017
 # Eduardo Romera
 #######################
@@ -19,6 +19,8 @@ from torchvision.transforms import ToTensor, ToPILImage
 from dataset import cityscapes
 from erfnet import ERFNet
 from transform import Relabel, ToLabel, Colorize
+
+import visdom
 
 
 NUM_CHANNELS = 3
@@ -59,7 +61,7 @@ cityscapes_trainIds2labelIds = Compose([
     Relabel(0, 7),
     Relabel(255, 0),
     ToPILImage(),
-    Scale(1024, Image.NEAREST),
+    #Scale(1024, Image.NEAREST),
 ])
 
 def main(args):
@@ -73,7 +75,7 @@ def main(args):
     #Import ERFNet model from the folder
     #Net = importlib.import_module(modelpath.replace("/", "."), "ERFNet")
     model = ERFNet(NUM_CLASSES)
-
+  
     model = torch.nn.DataParallel(model)
     if (not args.cpu):
         model = model.cuda()
@@ -101,6 +103,12 @@ def main(args):
     loader = DataLoader(cityscapes(args.datadir, input_transform_cityscapes, target_transform_cityscapes, subset=args.subset),
         num_workers=args.num_workers, batch_size=args.batch_size, shuffle=False)
 
+    # For visualizer:
+    # must launch in other window "python3.6 -m visdom.server -port 8097"
+    # and access localhost:8097 to see it
+    if (args.visualize):
+        vis = visdom.Visdom()
+
     for step, (images, labels, filename, filenameGt) in enumerate(loader):
         if (not args.cpu):
             images = images.cuda()
@@ -111,14 +119,17 @@ def main(args):
         outputs = model(inputs)
 
         label = outputs[0].cpu().max(0)[1].data.byte()
-        label_cityscapes = cityscapes_trainIds2labelIds(label.unsqueeze(0))
-        #print (numpy.unique(label.numpy()))  #debug
+        #label_cityscapes = cityscapes_trainIds2labelIds(label.unsqueeze(0))
+        label_color = Colorize()(label.unsqueeze(0))
 
-        filenameSave = "./save_results/" + filename[0].split("leftImg8bit/")[1]
+        filenameSave = "./save_color/" + filename[0].split("leftImg8bit/")[1]
         os.makedirs(os.path.dirname(filenameSave), exist_ok=True)
-        #image_transform(label.byte()).save(filenameSave)
-        label_cityscapes.save(filenameSave)
+        #image_transform(label.byte()).save(filenameSave)      
+        label_save = ToPILImage()(label_color)           
+        label_save.save(filenameSave) 
 
+        if (args.visualize):
+            vis.image(label_color.numpy())
         print (step, filenameSave)
 
     
@@ -138,4 +149,5 @@ if __name__ == '__main__':
     parser.add_argument('--batch-size', type=int, default=1)
     parser.add_argument('--cpu', action='store_true')
 
+    parser.add_argument('--visualize', action='store_true')
     main(parser.parse_args())

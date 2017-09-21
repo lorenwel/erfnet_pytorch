@@ -2,14 +2,24 @@
 
 ## Checklist:
 4 usable functions like in the original Torch code, the missing ones will be implemented in the near future.
-- [ ] eval_cityscapes_color
+- [x] eval_cityscapes_color
 - [x] eval_cityscapes_server
 - [ ] eval_cityscapes_confussionMatrix
 - [x] eval_forwardTime
 
+## eval_cityscapes_color.py 
+
+This code can be used to produce segmentation of the Cityscapes images in color for visualization purposes. By default it saves images in eval/results_color/ folder. You can also visualize results in visdom with --visualize flag.
+
+**Options:** Specify the Cityscapes folder path with '--datadir' option. Select the cityscapes subset with '--subset' ('val', 'test', 'train' or 'demoSequence'). For other options check the bottom side of the file.
+
+**Examples:**
+```
+python3.6 eval_cityscapes_color.py --datadir /home/datasets/cityscapes/ --subset val
+
 ## eval_cityscapes_server.py 
 
-This code can be used to produce segmentation of the Cityscapes images and convert the output indices to the original 'labelIds' so it can be evaluated using the scripts from Cityscapes dataset (evalPixelLevelSemanticLabeling.py) or uploaded to Cityscapes test server.
+This code can be used to produce segmentation of the Cityscapes images and convert the output indices to the original 'labelIds' so it can be evaluated using the scripts from Cityscapes dataset (evalPixelLevelSemanticLabeling.py) or uploaded to Cityscapes test server. By default it saves images in eval/results_save/ folder.
 
 **Options:** Specify the Cityscapes folder path with '--datadir' option. Select the cityscapes subset with '--subset' ('val', 'test', 'train' or 'demoSequence'). For other options check the bottom side of the file.
 
