@@ -46,7 +46,7 @@ By default, only Validation IoU is calculated for faster training (can be change
 ## Visualization
 If you want to visualize the outputs during training add the "--visualize" flag and open an extra tab with:
 ```
-python3.6 -m visdom.server -port 8697
+python3.6 -m visdom.server -port 8097
 ```
 The plots will be available using the browser in http://localhost.com:8097
 
