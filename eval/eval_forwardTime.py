@@ -21,13 +21,17 @@ cudnn.benchmark = True
 
 def main(args):
     model = ERFNet(19)
-    model = model.cuda()#.half()	#HALF seems to be doing slower for some reason
+    if (not args.cpu):
+        model = model.cuda()#.half()	#HALF seems to be doing slower for some reason
     #model = torch.nn.DataParallel(model).cuda()
 
     model.eval()
 
 
-    images = torch.randn(args.batch_size, args.num_channels, args.height, args.width).cuda()#.half()
+    images = torch.randn(args.batch_size, args.num_channels, args.height, args.width)
+
+    if (not args.cpu):
+        images = images.cuda()#.half()
 
     time_train = []
 
@@ -42,7 +46,8 @@ def main(args):
         outputs = model(inputs)
 
         #preds = outputs.cpu()
-        torch.cuda.synchronize()    #wait for cuda to finish (cuda is asynchronous!)
+        if (not args.cpu):
+            torch.cuda.synchronize()    #wait for cuda to finish (cuda is asynchronous!)
 
         if i!=0:    #first run always takes some time for setup
             fwt = time.time() - start_time
@@ -59,5 +64,6 @@ if __name__ == '__main__':
     parser.add_argument('--height', type=int, default=512)
     parser.add_argument('--num-channels', type=int, default=3)
     parser.add_argument('--batch-size', type=int, default=1)
+    parser.add_argument('--cpu', action='store_true')
 
     main(parser.parse_args())
