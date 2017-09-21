@@ -103,8 +103,8 @@ def main(args):
         images = images.cuda()
         #labels = labels.cuda()
 
-        inputs = Variable(images)
-        #targets = Variable(labels)
+        inputs = Variable(images, volatile=True)
+        #targets = Variable(labels, volatile=True)
         outputs = model(inputs)
 
         label = outputs[0].cpu().max(0)[1].data.byte()
