@@ -169,8 +169,9 @@ def train(args, model, enc=False):
         automated_log_path = savedir + "/automated_log.txt"
         modeltxtpath = savedir + "/model.txt"    
 
-    with open(automated_log_path, "a") as myfile:
-        myfile.write("Epoch\t\tTrain-loss\t\tTest-loss\t\tTrain-IoU\t\tTest-IoU\t\tlearningRate")
+    if (not os.path.exists(automated_log_path)):    #dont add first line if it exists 
+        with open(automated_log_path, "a") as myfile:
+            myfile.write("Epoch\t\tTrain-loss\t\tTest-loss\t\tTrain-IoU\t\tTest-IoU\t\tlearningRate")
 
     with open(modeltxtpath, "w") as myfile:
         myfile.write(str(model))
@@ -195,19 +196,33 @@ def train(args, model, enc=False):
     #optimizer = Adam(model.parameters(), 5e-4, (0.9, 0.999),  eps=1e-08, weight_decay=2e-4)     ## scheduler 1
     optimizer = Adam(model.parameters(), 5e-4, (0.9, 0.999),  eps=1e-08, weight_decay=1e-4)      ## scheduler 2
 
+    start_epoch = 1
+    if args.resume:
+        #Must load weights, optimizer, epoch and best value. 
+        if enc:
+            filenameCheckpoint = savedir + '/checkpoint_enc.pth.tar'
+        else:
+            filenameCheckpoint = savedir + '/checkpoint.pth.tar'
+
+        assert os.path.exists(filenameCheckpoint), "Error: resume option was used but checkpoint was not found in folder"
+        checkpoint = torch.load(filenameCheckpoint)
+        start_epoch = checkpoint['epoch']
+        model.load_state_dict(checkpoint['state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer'])
+        best_acc = checkpoint['best_acc']
+        print("=> Loaded checkpoint at epoch {})".format(checkpoint['epoch']))
+
     #scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5) # set up scheduler     ## scheduler 1
-
     lambda1 = lambda epoch: pow((1-((epoch-1)/args.num_epochs)),0.9)  ## scheduler 2
-
     scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda1)                             ## scheduler 2
 
     if args.visualize and args.steps_plot > 0:
         board = Dashboard(args.port)
 
-    for epoch in range(1, args.num_epochs+1):
+    for epoch in range(start_epoch, args.num_epochs+1):
         print("----- TRAINING - EPOCH", epoch, "-----")
 
-        scheduler.step()    ## scheduler 2
+        scheduler.step(epoch)    ## scheduler 2
 
         epoch_loss = []
         time_train = []
@@ -492,6 +507,7 @@ def main(args):
     
     if args.state:
         #if args.state is provided then load this state for training
+        #Note: this only loads initialized weights. If you want to resume a training use "--resume" option!!
         """
         try:
             model.load_state_dict(torch.load(args.state))
@@ -502,7 +518,6 @@ def main(args):
         #state_dict = {k.partition('model.')[2]: v for k,v in state_dict}
         #https://discuss.pytorch.org/t/prefix-parameter-names-in-saved-model-if-trained-by-multi-gpu/494
         """
-    
         def load_my_state_dict(model, state_dict):  #custom function to load model when not all dict keys are there
             own_state = model.state_dict()
             for name, param in state_dict.items():
@@ -513,7 +528,6 @@ def main(args):
 
         #print(torch.load(args.state))
         model = load_my_state_dict(model, torch.load(args.state))
-        #TODO: load from checkpoint (tar file)
 
     """
     def weights_init(m):
@@ -586,6 +600,7 @@ if __name__ == '__main__':
     parser.add_argument('--visualize', action='store_true')
 
     parser.add_argument('--iouTrain', action='store_true', default=False) #recommended: False (takes a lot to train otherwise)
-    parser.add_argument('--iouVal', action='store_true', default=True) #calculating IoU takes about 0,10 seconds per image ~ 50s per 500 images in VAL set, so 50 extra secs per epoch      
+    parser.add_argument('--iouVal', action='store_true', default=True) #calculating IoU takes about 0,10 seconds per image ~ 50s per 500 images in VAL set, so 50 extra secs per epoch    
+    parser.add_argument('--resume', action='store_true')    #Use to load last checkpoint for training  
 
     main(parser.parse_args())
