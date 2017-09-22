@@ -6,6 +6,7 @@ PyTorch code for training ERFNet model on Cityscapes. The code was based initial
 - Show IoU on each epoch during training (adapted using cityscapes scripts)
 - Save snapshots and best model during training
 - Save additional output files useful for checking results (see below "Output files...")
+- Resume from checkpoint (use "--resume" flag in the command)
 
 ## Options
 For all options and defaults please see the bottom of the "main.py" file. Required ones are --savedir (name for creating a new folder with all the outputs of the training) and --datadir (path to cityscapes directory).

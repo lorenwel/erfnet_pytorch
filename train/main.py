@@ -601,6 +601,6 @@ if __name__ == '__main__':
 
     parser.add_argument('--iouTrain', action='store_true', default=False) #recommended: False (takes a lot to train otherwise)
     parser.add_argument('--iouVal', action='store_true', default=True) #calculating IoU takes about 0,10 seconds per image ~ 50s per 500 images in VAL set, so 50 extra secs per epoch    
-    parser.add_argument('--resume', action='store_true')    #Use to load last checkpoint for training  
+    parser.add_argument('--resume', action='store_true')    #Use this flag to load last checkpoint for training  
 
     main(parser.parse_args())
