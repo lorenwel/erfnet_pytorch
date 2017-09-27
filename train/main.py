@@ -453,7 +453,7 @@ def train(args, model, enc=False):
         if (is_best):
             torch.save(model.state_dict(), filenamebest)
             print(f'save: {filenamebest} (epoch: {epoch})')
-            if (args.decoder):
+            if (not enc):
                 with open(savedir + "/best.txt", "w") as myfile:
                     myfile.write("Best epoch is %d, with Val-IoU= %.4f" % (epoch, iouVal))   
             else:
@@ -488,12 +488,8 @@ def main(args):
     if not os.path.exists(savedir):
         os.makedirs(savedir)
 
-    if (args.decoder):
-        with open(savedir + '/opts.txt', "w") as myfile:
-            myfile.write(str(args))
-    else:
-        with open(savedir + '/opts_encoder.txt', "w") as myfile:
-            myfile.write(str(args))
+    with open(savedir + '/opts.txt', "w") as myfile:
+        myfile.write(str(args))
 
     #Load Model
     assert os.path.exists(args.model + ".py"), "Error: model definition not found"
