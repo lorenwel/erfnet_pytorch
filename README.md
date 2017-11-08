@@ -27,12 +27,18 @@ For instructions please refer to the README on each folder:
 ## Requirements:
 
 * [**The Cityscapes dataset**](https://www.cityscapes-dataset.com/).
-* [**Python 3.6**](https://www.python.org/): If you do not wish to change your local version you can use [pyenv](https://github.com/pyenv/pyenv). If you install python 3.6 without pyenv, I'd recommend using alias python=python3.6 in the .bashrc to use 3.6 version as default or calling scripts with python3.6.
+* [**Python 3.6**](https://www.python.org/): If you don't have Python3.6 in your system, I recommend installing it with [Anaconda](https://www.anaconda.com/download/#linux)
 * [**PyTorch**](http://pytorch.org/): Make sure to install the Pytorch version for Python 3.6 with CUDA support (code only tested for CUDA 8.0). 
-* **Additional Python packages**: numpy, visdom, matplotlib, Pillow and torchvision. If you use Pip (make sure to have it configured for Python3.6) you can install with: 
+* **Additional Python packages**: numpy, visdom, matplotlib, Pillow and torchvision. 
+In anaconda you can install with:
+```
+conda install numpy matplotlib torchvision Pillow visdom
+```
+
+If you use Pip (make sure to have it configured for Python3.6) you can install with: 
 
 ```
-pip3.6 install numpy visdom matplotlib torchvision Pillow cython
+pip install numpy matplotlib torchvision Pillow visdom
 ```
 
 ## License

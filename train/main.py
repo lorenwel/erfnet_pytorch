@@ -26,7 +26,7 @@ from piwise.visualize import Dashboard
 from piwise.ModelDataParallel import ModelDataParallel,CriterionDataParallel #https://github.com/pytorch/pytorch/issues/1893
 
 import importlib
-import evalIoU
+from iouEval import iouEval, getColorEntry
 
 from shutil import copyfile
 
@@ -230,10 +230,8 @@ def train(args, model, enc=False):
         doIouTrain = args.iouTrain   
         doIouVal =  args.iouVal      
 
-        #TODO: remake the evalIoU.py code to avoid using "evalIoU.args"
-        confMatrix    = evalIoU.generateMatrixTrainId(evalIoU.args)
-        perImageStats = {}
-        nbPixels = 0
+        if (doIouTrain):
+            iouEvalTrain = iouEval(NUM_CLASSES)
 
         usedLr = 0
         for param_group in optimizer.param_groups:
@@ -266,24 +264,10 @@ def train(args, model, enc=False):
             epoch_loss.append(loss.data[0])
             time_train.append(time.time() - start_time)
 
-            #print (outputs_cpu.size())
-            #Add outputs to confusion matrix    #CODE USING evalIoU.py remade from cityscapes/scripts/evaluation/evalPixelLevelSemanticLabeling.py
             if (doIouTrain):
-                #compatibility with criterion dataparallel
-                if isinstance(outputs, list):   #merge gpu tensors
-                    outputs_cpu = outputs[0].cpu()
-                    for i in range(1,len(outputs)):
-                        outputs_cpu = torch.cat((outputs_cpu, outputs[i].cpu()), 0)
-                    #print(outputs_cpu.size())
-                else:
-                    outputs_cpu = outputs.cpu()
-
                 #start_time_iou = time.time()
-                for i in range(0, outputs_cpu.size(0)):   #args.batch_size
-                    prediction = ToPILImage()(outputs_cpu[i].max(0)[1].data.unsqueeze(0).byte())
-                    groundtruth = ToPILImage()(labels[i].cpu().byte())
-                    nbPixels += evalIoU.evaluatePairPytorch(prediction, groundtruth, confMatrix, perImageStats, evalIoU.args)
-                #print ("Time to add confusion matrix: ", time.time() - start_time_iou)
+                iouEvalTrain.addBatch(outputs.max(1)[1].unsqueeze(1).data, targets.data)
+                #print ("Time to add confusion matrix: ", time.time() - start_time_iou)      
 
             #print(outputs.size())
             if args.visualize and args.steps_plot > 0 and step % args.steps_plot == 0:
@@ -310,26 +294,12 @@ def train(args, model, enc=False):
 
             
         average_epoch_loss_train = sum(epoch_loss) / len(epoch_loss)
-        #evalIoU.printConfMatrix(confMatrix, evalIoU.args)
         
         iouTrain = 0
         if (doIouTrain):
-            # Calculate IOU scores on class level from matrix
-            classScoreList = {}
-            for label in evalIoU.args.evalLabels:
-                labelName = evalIoU.trainId2label[label].name
-                classScoreList[labelName] = evalIoU.getIouScoreForTrainLabel(label, confMatrix, evalIoU.args)
-            iouAvgStr  = evalIoU.getColorEntry(evalIoU.getScoreAverage(classScoreList, evalIoU.args), evalIoU.args) + "{avg:5.3f}".format(avg=evalIoU.getScoreAverage(classScoreList, evalIoU.args)) + evalIoU.args.nocol
-
-            iouTrain = float(evalIoU.getScoreAverage(classScoreList, evalIoU.args))
-            print ("EPOCH IoU on TRAIN set: ", iouAvgStr)
-            #print("")
-            #evalIoU.printClassScoresPytorchTrain(classScoreList, evalIoU.args)
-            #print("--------------------------------")
-            #print("Score Average : " + iouAvgStr )#+ "    " + niouAvgStr)
-            #print("--------------------------------")
-            #print("")
-            #input ("Press key to continue...")
+            iouTrain, iou_classes = iouEvalTrain.getIoU()
+            iouStr = getColorEntry(iouTrain)+'{:0.2f}'.format(iouTrain*100) + '\033[0m'
+            print ("EPOCH IoU on TRAIN set: ", iouStr, "%")  
 
         #Validate on 500 val images after each epoch of training
         print("----- VALIDATING - EPOCH", epoch, "-----")
@@ -337,10 +307,8 @@ def train(args, model, enc=False):
         epoch_loss_val = []
         time_val = []
 
-        #New confusion matrix data
-        confMatrix    = evalIoU.generateMatrixTrainId(evalIoU.args)
-        perImageStats = {}
-        nbPixels = 0
+        if (doIouVal):
+            iouEvalVal = iouEval(NUM_CLASSES)
 
         for step, (images, labels) in enumerate(loader_val):
             start_time = time.time()
@@ -357,22 +325,10 @@ def train(args, model, enc=False):
             time_val.append(time.time() - start_time)
 
 
-            #Add outputs to confusion matrix
+            #Add batch to calculate TP, FP and FN for iou estimation
             if (doIouVal):
-                #compatibility with criterion dataparallel
-                if isinstance(outputs, list):   #merge gpu tensors
-                    outputs_cpu = outputs[0].cpu()
-                    for i in range(1,len(outputs)):
-                        outputs_cpu = torch.cat((outputs_cpu, outputs[i].cpu()), 0)
-                    #print(outputs_cpu.size())
-                else:
-                    outputs_cpu = outputs.cpu()
-
                 #start_time_iou = time.time()
-                for i in range(0, outputs_cpu.size(0)):   #args.batch_size
-                    prediction = ToPILImage()(outputs_cpu[i].max(0)[1].data.unsqueeze(0).byte())
-                    groundtruth = ToPILImage()(labels[i].cpu().byte())
-                    nbPixels += evalIoU.evaluatePairPytorch(prediction, groundtruth, confMatrix, perImageStats, evalIoU.args)
+                iouEvalVal.addBatch(outputs.max(1)[1].unsqueeze(1).data, targets.data)
                 #print ("Time to add confusion matrix: ", time.time() - start_time_iou)
 
             if args.visualize and args.steps_plot > 0 and step % args.steps_plot == 0:
@@ -397,26 +353,11 @@ def train(args, model, enc=False):
         average_epoch_loss_val = sum(epoch_loss_val) / len(epoch_loss_val)
         #scheduler.step(average_epoch_loss_val, epoch)  ## scheduler 1   # update lr if needed
 
-        # Calculate IOU scores on class level from matrix
         iouVal = 0
         if (doIouVal):
-            #start_time_iou = time.time()
-            classScoreList = {}
-            for label in evalIoU.args.evalLabels:
-                labelName = evalIoU.trainId2label[label].name
-                classScoreList[labelName] = evalIoU.getIouScoreForTrainLabel(label, confMatrix, evalIoU.args)
-
-            iouAvgStr  = evalIoU.getColorEntry(evalIoU.getScoreAverage(classScoreList, evalIoU.args), evalIoU.args) + "{avg:5.3f}".format(avg=evalIoU.getScoreAverage(classScoreList, evalIoU.args)) + evalIoU.args.nocol
-            iouVal = float(evalIoU.getScoreAverage(classScoreList, evalIoU.args))
-            print ("EPOCH IoU on VAL set: ", iouAvgStr)
-            #print("")
-            #evalIoU.printClassScoresPytorchTrain(classScoreList, evalIoU.args)
-            #print("--------------------------------")
-            #print("Score Average : " + iouAvgStr )#+ "    " + niouAvgStr)
-            #print("--------------------------------")
-            #print("")
-            #print ("Time to calculate confusion matrix: ", time.time() - start_time_iou)
-            #input ("Press key to continue...")
+            iouVal, iou_classes = iouEvalVal.getIoU()
+            iouStr = getColorEntry(iouVal)+'{:0.2f}'.format(iouVal*100) + '\033[0m'
+            print ("EPOCH IoU on VAL set: ", iouStr, "%") 
            
 
         # remember best valIoU and save checkpoint
@@ -577,7 +518,7 @@ def main(args):
 
 if __name__ == '__main__':
     parser = ArgumentParser()
-    parser.add_argument('--cuda', action='store_true', default=True)
+    parser.add_argument('--cuda', action='store_true', default=True)  #NOTE: cpu-only has not been tested so you might have to change code if you deactivate this flag
     parser.add_argument('--model', default="erfnet")
     parser.add_argument('--state')
 
@@ -595,8 +536,8 @@ if __name__ == '__main__':
     parser.add_argument('--pretrainedEncoder') #, default="../trained_models/erfnet_encoder_pretrained.pth.tar")
     parser.add_argument('--visualize', action='store_true')
 
-    parser.add_argument('--iouTrain', action='store_true', default=False) #recommended: False (takes a lot to train otherwise)
-    parser.add_argument('--iouVal', action='store_true', default=True) #calculating IoU takes about 0,10 seconds per image ~ 50s per 500 images in VAL set, so 50 extra secs per epoch    
+    parser.add_argument('--iouTrain', action='store_true', default=False) #recommended: False (takes more time to train otherwise)
+    parser.add_argument('--iouVal', action='store_true', default=True)  
     parser.add_argument('--resume', action='store_true')    #Use this flag to load last checkpoint for training  
 
     main(parser.parse_args())

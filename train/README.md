@@ -37,10 +37,7 @@ NOTE: Encoder trainings have an added "_encoder" tag to each file's name.
 
 ## IoU display during training
 
-The IoU calculation during training is performed with code adapted from cityscapes scripts which require compiled c code (with cython) to be fast. A compiled version for Linux 64bits is already provided with the code but if you need to compile for another machine do the following command in "train/cityscapes/" folder:
-``` 
-python setup.py build_ext --inplace
-```
+NEW: In previous coude, IoU was calculated using a port of the cityscapes scripts, but new code has been added in "iouEval.py" to make it class-general, non-dependable on other code, and much faster (using cuda)
 
 By default, only Validation IoU is calculated for faster training (can be changed in options)
 
