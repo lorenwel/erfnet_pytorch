@@ -23,7 +23,6 @@ from piwise.dataset import VOC12,cityscapes
 from piwise.criterion import CrossEntropyLoss2d
 from piwise.transform import Relabel, ToLabel, Colorize
 from piwise.visualize import Dashboard
-from piwise.ModelDataParallel import ModelDataParallel,CriterionDataParallel #https://github.com/pytorch/pytorch/issues/1893
 
 import importlib
 from iouEval import iouEval, getColorEntry
@@ -153,11 +152,8 @@ def train(args, model, enc=False):
     loader_val = DataLoader(dataset_val, num_workers=args.num_workers, batch_size=args.batch_size, shuffle=False)
 
     if args.cuda:
-        criterion = CrossEntropyLoss2d(weight.cuda()) 
-        #criterion = CriterionDataParallel(criterion).cuda()
-    else:
-        criterion = CrossEntropyLoss2d(weight)
-
+        weight = weight.cuda()
+    criterion = CrossEntropyLoss2d(weight)
     print(type(criterion))
 
     savedir = f'../save/{args.savedir}'
@@ -440,7 +436,6 @@ def main(args):
     
     if args.cuda:
         model = torch.nn.DataParallel(model).cuda()
-        #model = ModelDataParallel(model).cuda()
     
     if args.state:
         #if args.state is provided then load this state for training
