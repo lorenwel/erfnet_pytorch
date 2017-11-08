@@ -37,32 +37,6 @@ target_transform_cityscapes = Compose([
     Relabel(255, 19),   #ignore label to 19
 ])
 
-cityscapes_trainIds2labelIds = Compose([
-    Relabel(19, 255),  
-    Relabel(18, 33),
-    Relabel(17, 32),
-    Relabel(16, 31),
-    Relabel(15, 28),
-    Relabel(14, 27),
-    Relabel(13, 26),
-    Relabel(12, 25),
-    Relabel(11, 24),
-    Relabel(10, 23),
-    Relabel(9, 22),
-    Relabel(8, 21),
-    Relabel(7, 20),
-    Relabel(6, 19),
-    Relabel(5, 17),
-    Relabel(4, 13),
-    Relabel(3, 12),
-    Relabel(2, 11),
-    Relabel(1, 8),
-    Relabel(0, 7),
-    Relabel(255, 0),
-    ToPILImage(),
-    Scale(1024, Image.NEAREST),
-])
-
 def main(args):
 
     modelpath = args.loadDir + args.loadModel
