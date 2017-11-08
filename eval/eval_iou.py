@@ -1,5 +1,5 @@
-# Code to produce segmentation output in Pytorch for all cityscapes subset 
-# Sept 2017
+# Code to calculate IoU (mean and per-class) in a dataset
+# Nov 2017
 # Eduardo Romera
 #######################
 
