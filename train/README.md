@@ -37,7 +37,7 @@ NOTE: Encoder trainings have an added "_encoder" tag to each file's name.
 
 ## IoU display during training
 
-NEW: In previous coude, IoU was calculated using a port of the cityscapes scripts, but new code has been added in "iouEval.py" to make it class-general, non-dependable on other code, and much faster (using cuda)
+NEW: In previous code, IoU was calculated using a port of the cityscapes scripts, but new code has been added in "iouEval.py" to make it class-general, non-dependable on other code, and much faster (using cuda)
 
 By default, only Validation IoU is calculated for faster training (can be changed in options)
 
