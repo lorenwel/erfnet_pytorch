@@ -19,10 +19,10 @@ from torch.utils.data import DataLoader
 from torchvision.transforms import Compose, CenterCrop, Normalize, Scale, Pad
 from torchvision.transforms import ToTensor, ToPILImage
 
-from piwise.dataset import VOC12,cityscapes
-from piwise.criterion import CrossEntropyLoss2d
-from piwise.transform import Relabel, ToLabel, Colorize
-from piwise.visualize import Dashboard
+from dataset import VOC12,cityscapes
+from criterion import CrossEntropyLoss2d
+from transform import Relabel, ToLabel, Colorize
+from visualize import Dashboard
 
 import importlib
 from iouEval import iouEval, getColorEntry
