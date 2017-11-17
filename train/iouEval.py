@@ -9,13 +9,14 @@ class iouEval:
 
     def __init__(self, nClasses, ignoreIndex=19):
         self.nClasses = nClasses
-        self.ignoreIndex = ignoreIndex
+        self.ignoreIndex = ignoreIndex if nClasses>ignoreIndex else -1 #if ignoreIndex is larger than nClasses, consider no ignoreIndex
         self.reset()
 
     def reset (self):
-        self.tp = torch.zeros(self.nClasses-1).double()
-        self.fp = torch.zeros(self.nClasses-1).double()
-        self.fn = torch.zeros(self.nClasses-1).double()        
+        classes = self.nClasses if self.ignoreIndex==-1 else self.nClasses-1
+        self.tp = torch.zeros(classes).double()
+        self.fp = torch.zeros(classes).double()
+        self.fn = torch.zeros(classes).double()        
 
     def addBatch(self, x, y):   #x=preds, y=targets
         #sizes should be "batch_size x nClasses x H x W"
@@ -34,9 +35,12 @@ class iouEval:
             y_onehot = y.float()
         #TODO cuda only if x is cuda
 
-        ignores = y_onehot[:,self.ignoreIndex].unsqueeze(1)
-        x_onehot = x_onehot[:, :self.ignoreIndex]
-        y_onehot = y_onehot[:, :self.ignoreIndex]
+        if (self.ignoreIndex != -1): 
+            ignores = y_onehot[:,self.ignoreIndex].unsqueeze(1)
+            x_onehot = x_onehot[:, :self.ignoreIndex]
+            y_onehot = y_onehot[:, :self.ignoreIndex]
+        else:
+            ignores=0
 
         #print(type(x_onehot))
         #print(type(y_onehot))
@@ -86,3 +90,4 @@ def getColorEntry(val):
         return colors.CYAN
     else:
         return colors.GREEN
+
