@@ -118,7 +118,7 @@ def main(args):
         #targets = Variable(labels, volatile=True)
         outputs = model(inputs)
 
-        label = outputs[0].cpu().max(0)[1].data.byte()
+        label = outputs[0].max(0)[1].byte().cpu().data
         #label_cityscapes = cityscapes_trainIds2labelIds(label.unsqueeze(0))
         label_color = Colorize()(label.unsqueeze(0))
 
