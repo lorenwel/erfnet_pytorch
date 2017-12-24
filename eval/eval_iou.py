@@ -15,7 +15,7 @@ from argparse import ArgumentParser
 
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
-from torchvision.transforms import Compose, CenterCrop, Normalize, Scale
+from torchvision.transforms import Compose, CenterCrop, Normalize, Resize
 from torchvision.transforms import ToTensor, ToPILImage
 
 from dataset import cityscapes
@@ -28,11 +28,11 @@ NUM_CLASSES = 20
 
 image_transform = ToPILImage()
 input_transform_cityscapes = Compose([
-    Scale(512, Image.BILINEAR),
+    Resize(512, Image.BILINEAR),
     ToTensor(),
 ])
 target_transform_cityscapes = Compose([
-    Scale(512, Image.NEAREST),
+    Resize(512, Image.NEAREST),
     ToLabel(),
     Relabel(255, 19),   #ignore label to 19
 ])

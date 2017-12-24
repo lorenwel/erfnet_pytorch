@@ -16,7 +16,7 @@ from argparse import ArgumentParser
 from torch.optim import SGD, Adam, lr_scheduler
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
-from torchvision.transforms import Compose, CenterCrop, Normalize, Scale, Pad
+from torchvision.transforms import Compose, CenterCrop, Normalize, Resize, Pad
 from torchvision.transforms import ToTensor, ToPILImage
 
 from dataset import VOC12,cityscapes
@@ -55,8 +55,8 @@ class MyCoTransform(object):
         pass
     def __call__(self, input, target):
         # do something to both images
-        input =  Scale(self.height, Image.BILINEAR)(input)
-        target = Scale(self.height, Image.NEAREST)(target)
+        input =  Resize(self.height, Image.BILINEAR)(input)
+        target = Resize(self.height, Image.NEAREST)(target)
 
         if(self.augment):
             # Random hflip
@@ -80,7 +80,7 @@ class MyCoTransform(object):
 
         input = ToTensor()(input)
         if (self.enc):
-            target = Scale(int(self.height/8), Image.NEAREST)(target)
+            target = Resize(int(self.height/8), Image.NEAREST)(target)
         target = ToLabel()(target)
         target = Relabel(255, 19)(target)
 

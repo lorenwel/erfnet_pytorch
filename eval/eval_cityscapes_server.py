@@ -13,7 +13,7 @@ from argparse import ArgumentParser
 
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
-from torchvision.transforms import Compose, CenterCrop, Normalize, Scale
+from torchvision.transforms import Compose, CenterCrop, Normalize, Resize
 from torchvision.transforms import ToTensor, ToPILImage
 
 from dataset import cityscapes
@@ -26,12 +26,12 @@ NUM_CLASSES = 20
 
 image_transform = ToPILImage()
 input_transform_cityscapes = Compose([
-    Scale(512),
+    Resize(512),
     ToTensor(),
     #Normalize([.485, .456, .406], [.229, .224, .225]),
 ])
 target_transform_cityscapes = Compose([
-    Scale(512),
+    Resize(512),
     ToLabel(),
     Relabel(255, 19),   #ignore label to 19
 ])
@@ -59,7 +59,7 @@ cityscapes_trainIds2labelIds = Compose([
     Relabel(0, 7),
     Relabel(255, 0),
     ToPILImage(),
-    Scale(1024, Image.NEAREST),
+    Resize(1024, Image.NEAREST),
 ])
 
 def main(args):
