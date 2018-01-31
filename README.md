@@ -22,6 +22,7 @@ For instructions please refer to the README on each folder:
 
 * [train](train) contains tools for training the network for semantic segmentation.
 * [eval](eval) contains tools for evaluating/visualizing the network's output.
+* [imagenet](imagenet) Contains script and model for pretraining ERFNet's encoder in Imagenet.
 * [trained_models](trained_models) Contains the trained models used in the papers. NOTE: the pytorch version is slightly different from the torch models.
 
 ## Requirements:
