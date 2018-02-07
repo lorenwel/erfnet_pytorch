@@ -20,7 +20,6 @@ from torchvision.transforms import Compose, CenterCrop, Normalize, Resize, Pad
 from torchvision.transforms import ToTensor, ToPILImage
 
 from dataset import VOC12,cityscapes
-from criterion import CrossEntropyLoss2d
 from transform import Relabel, ToLabel, Colorize
 from visualize import Dashboard
 
@@ -70,6 +69,17 @@ class MyCoTransform(object):
         target = Relabel(255, 19)(target)
 
         return input, target
+
+
+class CrossEntropyLoss2d(torch.nn.Module):
+
+    def __init__(self, weight=None):
+        super().__init__()
+
+        self.loss = torch.nn.NLLLoss2d(weight)
+
+    def forward(self, outputs, targets):
+        return self.loss(torch.nn.functional.log_softmax(outputs, dim=1), targets)
 
 best_acc = 0
 
