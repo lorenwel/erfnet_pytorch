@@ -21,19 +21,29 @@ class iouEval:
     def addBatch(self, x, y):   #x=preds, y=targets
         #sizes should be "batch_size x nClasses x H x W"
         
+        #print ("X is cuda: ", x.is_cuda)
+        #print ("Y is cuda: ", y.is_cuda)
+
+        if (x.is_cuda or y.is_cuda):
+            x = x.cuda()
+            y = y.cuda()
+
         #if size is "batch_size x 1 x H x W" scatter to onehot
         if (x.size(1) == 1):
-            x_onehot = torch.zeros(x.size(0), self.nClasses, x.size(2), x.size(3)).cuda()   
+            x_onehot = torch.zeros(x.size(0), self.nClasses, x.size(2), x.size(3))  
+            if x.is_cuda:
+                x_onehot = x_onehot.cuda()
             x_onehot.scatter_(1, x, 1).float()
         else:
             x_onehot = x.float()
 
         if (y.size(1) == 1):
-            y_onehot = torch.zeros(y.size(0), self.nClasses, y.size(2), y.size(3)).cuda()
+            y_onehot = torch.zeros(y.size(0), self.nClasses, y.size(2), y.size(3))
+            if y.is_cuda:
+                y_onehot = y_onehot.cuda()
             y_onehot.scatter_(1, y, 1).float()
         else:
             y_onehot = y.float()
-        #TODO cuda only if x is cuda
 
         if (self.ignoreIndex != -1): 
             ignores = y_onehot[:,self.ignoreIndex].unsqueeze(1)

@@ -20,7 +20,6 @@ from torchvision.transforms import Compose, CenterCrop, Normalize, Resize, Pad
 from torchvision.transforms import ToTensor, ToPILImage
 
 from dataset import VOC12,cityscapes
-from criterion import CrossEntropyLoss2d
 from transform import Relabel, ToLabel, Colorize
 from visualize import Dashboard
 
@@ -29,22 +28,11 @@ from iouEval import iouEval, getColorEntry
 
 from shutil import copyfile
 
-
 NUM_CHANNELS = 3
 NUM_CLASSES = 20 #pascal=22, cityscapes=20
 
 color_transform = Colorize(NUM_CLASSES)
 image_transform = ToPILImage()
-input_transform = Compose([
-    CenterCrop(256),
-    ToTensor(),
-    Normalize([.485, .456, .406], [.229, .224, .225]),
-])
-target_transform = Compose([
-    CenterCrop(256),
-    ToLabel(),
-    Relabel(255, 21),
-])
 
 #Augmentations - different function implemented to perform random augments on both image and target
 class MyCoTransform(object):
@@ -74,10 +62,6 @@ class MyCoTransform(object):
             input = input.crop((0, 0, input.size[0]-transX, input.size[1]-transY))
             target = target.crop((0, 0, target.size[0]-transX, target.size[1]-transY))   
 
-            #TODO future: additional augments
-            #CenterCrop(256)  
-            #Normalize([.485, .456, .406], [.229, .224, .225]),
-
         input = ToTensor()(input)
         if (self.enc):
             target = Resize(int(self.height/8), Image.NEAREST)(target)
@@ -85,6 +69,17 @@ class MyCoTransform(object):
         target = Relabel(255, 19)(target)
 
         return input, target
+
+
+class CrossEntropyLoss2d(torch.nn.Module):
+
+    def __init__(self, weight=None):
+        super().__init__()
+
+        self.loss = torch.nn.NLLLoss2d(weight)
+
+    def forward(self, outputs, targets):
+        return self.loss(torch.nn.functional.log_softmax(outputs, dim=1), targets)
 
 best_acc = 0
 
@@ -138,9 +133,6 @@ def train(args, model, enc=False):
 
     weight[19] = 0
 
-    #loader = DataLoader(VOC12(args.datadir, input_transform, target_transform),
-    #    num_workers=args.num_workers, batch_size=args.batch_size, shuffle=True)
-
     assert os.path.exists(args.datadir), "Error: datadir (dataset directory) could not be loaded"
 
     co_transform = MyCoTransform(enc, augment=True, height=args.height)#1024)
@@ -175,20 +167,6 @@ def train(args, model, enc=False):
 
     #TODO: reduce memory in first gpu: https://discuss.pytorch.org/t/multi-gpu-training-memory-usage-in-balance/4163/4        #https://github.com/pytorch/pytorch/issues/1893
 
-    """
-	#Some optimizer examples:
-    optimizer = Adam(model.parameters())    
-    if args.model.startswith('FCN'):
-        optimizer = SGD(model.parameters(), 1e-4, .9, 2e-5)
-    if args.model.startswith('PSP'):
-        optimizer = SGD(model.parameters(), 1e-2, .9, 1e-4)
-    if args.model.startswith('Seg'):
-        optimizer = SGD(model.parameters(), 1e-3, .9)
-    if args.model.startswith('E'):
-        #optimizer = Adam(model.parameters(), 1e-3, .9)
-        optimizer = Adam(model.parameters(), 5e-4, .9, weight_decay=2e-4)
-#5e-4 wd: 2e-4
-    """
     #optimizer = Adam(model.parameters(), 5e-4, (0.9, 0.999),  eps=1e-08, weight_decay=2e-4)     ## scheduler 1
     optimizer = Adam(model.parameters(), 5e-4, (0.9, 0.999),  eps=1e-08, weight_decay=1e-4)      ## scheduler 2
 
@@ -410,14 +388,6 @@ def save_checkpoint(state, is_best, filenameCheckpoint, filenameBest):
         print ("Saving model as best")
         torch.save(state, filenameBest)
 
-def evaluate(args, model):
-    model.eval()
-
-    image = input_transform(Image.open(args.image))
-    label = model(Variable(image, volatile=True).unsqueeze(0))
-    #label = color_transform(label[0].data.max(0)[1])
-
-    image_transform(label).save(args.label)
 
 def main(args):
     savedir = f'../save/{args.savedir}'
