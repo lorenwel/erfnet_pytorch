@@ -47,6 +47,7 @@ def colormap(n):
 
     return cmap
 
+
 class Relabel:
 
     def __init__(self, olabel, nlabel):
@@ -65,27 +66,73 @@ class ToLabel:
         return torch.from_numpy(np.array(image)).long().unsqueeze(0)
 
 
+class FloatToLongLabel:
+
+    def __call__(self, image):
+        return torch.from_numpy(np.array(image)*1000000).long().unsqueeze(0)
+
+
 class Colorize:
 
-    def __init__(self, n=22):
-        #self.cmap = colormap(256)
-        self.cmap = colormap_cityscapes(256)
-        self.cmap[n] = self.cmap[-1]
-        self.cmap = torch.from_numpy(self.cmap[:n])
+    def __init__(self, min_val = 0, max_val = 1, remove_negative = False):
+        self.min_val = min_val
+        self.max_val = max_val
+        self.factor = 255.0 / (max_val - min_val)
+        self.remove_negative = remove_negative
 
     def __call__(self, gray_image):
         size = gray_image.size()
-        #print(size)
         color_image = torch.ByteTensor(3, size[1], size[2]).fill_(0)
-        #color_image = torch.ByteTensor(3, size[0], size[1]).fill_(0)
 
-        #for label in range(1, len(self.cmap)):
-        for label in range(0, len(self.cmap)):
-            mask = gray_image[0] == label
-            #mask = gray_image == label
+        # Pixels in interval.
+        mask = torch.lt(gray_image, self.max_val) & torch.gt(gray_image, self.min_val)
+        # Color pixels greater than max_val green.
+        color_image[0][torch.ge(gray_image, self.max_val)] = 255
+        # Color pixels less than min_val green.
+        color_image[1][torch.le(gray_image, self.min_val)] = 255
 
-            color_image[0][mask] = self.cmap[label][0]
-            color_image[1][mask] = self.cmap[label][1]
-            color_image[2][mask] = self.cmap[label][2]
+        # TODO: This might be slow. 
+        color_image[0][mask] = ((gray_image[mask].float() - self.min_val) * self.factor).byte()
+        color_image[1][mask] = ((self.max_val - gray_image[mask].float()) * self.factor).byte()
+
+        # Remove negative color.
+        if self.remove_negative:
+            mask = torch.eq(gray_image, 0)
+            color_image[0][mask] = 255
+            color_image[1][mask] = 255
+            color_image[2][mask] = 255
 
         return color_image
+
+
+# class Colorize:
+
+#     def __init__(self, min_val = 0, max_val = 1, remove_negative = False):
+#         self.min_val = min_val
+#         self.max_val = max_val
+#         self.factor = 255.0 / (max_val - min_val)
+#         self.remove_negative = remove_negative
+
+#     def __call__(self, gray_image):
+#         size = gray_image.size()
+#         color_image = torch.ByteTensor(3, size[1], size[2]).fill_(0)
+
+#         # Pixels in interval.
+#         mask = torch.lt(gray_image, self.max_val) & torch.gt(gray_image, self.min_val)
+#         # Color pixels greater than max_val green.
+#         color_image[0][torch.gt(gray_image, self.max_val)] = 255
+#         # Color pixels less than min_val green.
+#         color_image[1][torch.lt(gray_image, self.min_val)] = 255
+
+#         # TODO: This might be slow. 
+#         color_image[0][mask] = ((gray_image[mask].float() - self.min_val) * self.factor).byte()
+#         color_image[1][mask] = ((self.max_val - gray_image[mask].float()) * self.factor).byte()
+
+#         # Remove negative color.
+#         if self.remove_negative:
+#             mask = torch.lt(gray_image, 0)
+#             color_image[0][mask] = 255
+#             color_image[1][mask] = 255
+#             color_image[2][mask] = 255
+
+#         return color_image

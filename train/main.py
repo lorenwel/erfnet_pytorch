@@ -19,8 +19,8 @@ from torch.utils.data import DataLoader
 from torchvision.transforms import Compose, CenterCrop, Normalize, Resize, Pad
 from torchvision.transforms import ToTensor, ToPILImage
 
-from dataset import VOC12,cityscapes
-from transform import Relabel, ToLabel, Colorize
+from dataset import VOC12,cityscapes,self_supervised_power
+from transform import Relabel, ToLabel, Colorize, FloatToLongLabel
 from visualize import Dashboard
 
 import importlib
@@ -29,9 +29,10 @@ from iouEval import iouEval, getColorEntry
 from shutil import copyfile
 
 NUM_CHANNELS = 3
-NUM_CLASSES = 20 #pascal=22, cityscapes=20
+# NUM_CLASSES = 20 #pascal=22, cityscapes=20
+NUM_CLASSES = 1 # Turned into regression problem
 
-color_transform = Colorize(NUM_CLASSES)
+color_transform = Colorize(1000000, 2000000, True)  # min_val, max_val, remove negative
 image_transform = ToPILImage()
 
 #Augmentations - different function implemented to perform random augments on both image and target
@@ -58,15 +59,15 @@ class MyCoTransform(object):
             transY = random.randint(-2, 2)
 
             input = ImageOps.expand(input, border=(transX,transY,0,0), fill=0)
-            target = ImageOps.expand(target, border=(transX,transY,0,0), fill=255) #pad label filling with 255
+            target = ImageOps.expand(target, border=(transX,transY,0,0), fill= -1.0) #pad label filling with 255
             input = input.crop((0, 0, input.size[0]-transX, input.size[1]-transY))
             target = target.crop((0, 0, target.size[0]-transX, target.size[1]-transY))   
 
         input = ToTensor()(input)
         if (self.enc):
             target = Resize(int(self.height/8), Image.NEAREST)(target)
-        target = ToLabel()(target)
-        target = Relabel(255, 19)(target)
+        target = FloatToLongLabel()(target)
+        # target = Relabel(255, 19)(target)
 
         return input, target
 
@@ -81,6 +82,23 @@ class CrossEntropyLoss2d(torch.nn.Module):
     def forward(self, outputs, targets):
         return self.loss(torch.nn.functional.log_softmax(outputs, dim=1), targets)
 
+class MSELossPosElements(torch.nn.Module):
+
+    def __init__(self):
+        super().__init__()
+
+        self.loss = torch.nn.MSELoss(False, False)
+
+    def forward(self, outputs, targets):
+        cur_loss = self.loss(outputs.float(), targets.float()).squeeze()
+        # only compute loss for places where label exists.
+        masked_loss = cur_loss.masked_select(torch.gt(targets, 0.0))
+        if len(masked_loss.size()) == 0:
+            return 0.0
+        else:
+            return masked_loss.mean()
+
+
 best_acc = 0
 
 def train(args, model, enc=False):
@@ -90,62 +108,27 @@ def train(args, model, enc=False):
     #create a loder to run all images and calculate histogram of labels, then create weight array using class balancing
 
     weight = torch.ones(NUM_CLASSES)
+    # We only have one class. 
     if (enc):
-        weight[0] = 2.3653597831726	
-        weight[1] = 4.4237880706787	
-        weight[2] = 2.9691488742828	
-        weight[3] = 5.3442072868347	
-        weight[4] = 5.2983593940735	
-        weight[5] = 5.2275490760803	
-        weight[6] = 5.4394111633301	
-        weight[7] = 5.3659925460815	
-        weight[8] = 3.4170460700989	
-        weight[9] = 5.2414722442627	
-        weight[10] = 4.7376127243042	
-        weight[11] = 5.2286224365234	
-        weight[12] = 5.455126285553	
-        weight[13] = 4.3019247055054	
-        weight[14] = 5.4264230728149	
-        weight[15] = 5.4331531524658	
-        weight[16] = 5.433765411377	
-        weight[17] = 5.4631009101868	
-        weight[18] = 5.3947434425354
+        weight[0] = 1.0
     else:
-        weight[0] = 2.8149201869965	
-        weight[1] = 6.9850029945374	
-        weight[2] = 3.7890393733978	
-        weight[3] = 9.9428062438965	
-        weight[4] = 9.7702074050903	
-        weight[5] = 9.5110931396484	
-        weight[6] = 10.311357498169	
-        weight[7] = 10.026463508606	
-        weight[8] = 4.6323022842407	
-        weight[9] = 9.5608062744141	
-        weight[10] = 7.8698215484619	
-        weight[11] = 9.5168733596802	
-        weight[12] = 10.373730659485	
-        weight[13] = 6.6616044044495	
-        weight[14] = 10.260489463806	
-        weight[15] = 10.287888526917	
-        weight[16] = 10.289801597595	
-        weight[17] = 10.405355453491	
-        weight[18] = 10.138095855713	
-
-    weight[19] = 0
+        weight[0] = 1.0
 
     assert os.path.exists(args.datadir), "Error: datadir (dataset directory) could not be loaded"
 
-    co_transform = MyCoTransform(enc, augment=True, height=args.height)#1024)
-    co_transform_val = MyCoTransform(enc, augment=False, height=args.height)#1024)
-    dataset_train = cityscapes(args.datadir, co_transform, 'train')
-    dataset_val = cityscapes(args.datadir, co_transform_val, 'val')
+    co_transform = MyCoTransform(enc, augment=True, height=480)#1024)
+    co_transform_val = MyCoTransform(enc, augment=False, height=480)#1024)
+    dataset_train = self_supervised_power(args.datadir, co_transform, 'train')
+    # dataset_train = self_supervised_power(args.datadir, None, 'train')
+    dataset_val = self_supervised_power(args.datadir, co_transform_val, 'val')
 
     loader = DataLoader(dataset_train, num_workers=args.num_workers, batch_size=args.batch_size, shuffle=True)
     loader_val = DataLoader(dataset_val, num_workers=args.num_workers, batch_size=args.batch_size, shuffle=False)
 
     if args.cuda:
         weight = weight.cuda()
-    criterion = CrossEntropyLoss2d(weight)
+    # criterion = CrossEntropyLoss2d(weight)
+    criterion = MSELossPosElements()     # MSE loss with averaging over mini-batch
     print(type(criterion))
 
     savedir = f'../save/{args.savedir}'
@@ -502,7 +485,7 @@ if __name__ == '__main__':
     parser.add_argument('--visualize', action='store_true')
 
     parser.add_argument('--iouTrain', action='store_true', default=False) #recommended: False (takes more time to train otherwise)
-    parser.add_argument('--iouVal', action='store_true', default=True)  
+    parser.add_argument('--iouVal', action='store_true', default=False)  
     parser.add_argument('--resume', action='store_true')    #Use this flag to load last checkpoint for training  
 
     main(parser.parse_args())

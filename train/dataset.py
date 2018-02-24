@@ -1,6 +1,8 @@
 import numpy as np
 import os
 
+import torch
+
 from PIL import Image
 
 from torch.utils.data import Dataset
@@ -15,6 +17,12 @@ def is_image(filename):
 
 def is_label(filename):
     return filename.endswith("_labelTrainIds.png")
+
+def is_self_supervised_image(filename):
+    return filename.endswith("_img.bmp")
+
+def is_self_supervised_label(filename):
+    return filename.endswith("_label.bmp")
 
 def image_path(root, basename, extension):
     return os.path.join(root, f'{basename}{extension}')
@@ -97,4 +105,57 @@ class cityscapes(Dataset):
 
     def __len__(self):
         return len(self.filenames)
+
+
+
+class self_supervised_power(Dataset):
+
+    def __init__(self, root, co_transform=None, subset='train'):
+        self.images_root = os.path.join(root, subset)
+        self.labels_root = os.path.join(root, subset)
+        
+        print ("Image root is: " + self.images_root)
+        print ("Label root is: " + self.labels_root)
+
+        self.filenames = [os.path.join(dp, f) for dp, dn, fn in os.walk(os.path.expanduser(self.images_root), followlinks=True) for f in fn if is_self_supervised_image(f)]
+        self.filenames.sort()
+        print ("Found " + str(len(self.filenames)) + " images.")
+
+        self.filenamesGt = [os.path.join(dp, f) for dp, dn, fn in os.walk(os.path.expanduser(self.labels_root), followlinks=True) for f in fn if is_self_supervised_label(f)]
+        self.filenamesGt.sort()
+        print ("Found " + str(len(self.filenamesGt)) + " labels.")
+
+        self.co_transform = co_transform # ADDED THIS
+
+
+    def __getitem__(self, index):
+        filename = self.filenames[index]
+        filenameGt = self.filenamesGt[index]
+
+        with open(image_path_city(self.images_root, filename), 'rb') as f:
+            image = load_image(f).convert('RGB')
+        with open(image_path_city(self.labels_root, filenameGt), 'rb') as f:
+            label = load_image(f).convert('F')
+
+        # print ("Float " + filenameGt)
+        # print (label)
+
+        float_tensor = torch.from_numpy(np.array(label))
+        print ("Float tensor is type " + float_tensor.type())
+        print ("Number of zero elements: " + str(torch.eq(float_tensor, 0.0).sum()))
+        print ("Number of negative elements: " + str(torch.lt(float_tensor, 0.0).sum()))
+        print ("Number of positive elements: " + str(torch.gt(float_tensor, 0.0).sum()))
+        print (float_tensor[torch.gt(float_tensor, 0.0)])
+
+        if self.co_transform is not None:
+            image, label = self.co_transform(image, label)
+
+        # print ("Long tensor " + filenameGt)
+        # print (label)
+
+        return image, label
+
+    def __len__(self):
+        return len(self.filenames)
+
 
