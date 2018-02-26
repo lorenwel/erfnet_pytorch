@@ -5,6 +5,8 @@ import torch
 
 from PIL import Image
 
+from numpy import genfromtxt, count_nonzero
+
 from torch.utils.data import Dataset
 
 EXTENSIONS = ['.jpg', '.png']
@@ -22,7 +24,7 @@ def is_self_supervised_image(filename):
     return filename.endswith("_img.bmp")
 
 def is_self_supervised_label(filename):
-    return filename.endswith("_label.bmp")
+    return filename.endswith("_label.csv")
 
 def image_path(root, basename, extension):
     return os.path.join(root, f'{basename}{extension}')
@@ -110,7 +112,7 @@ class cityscapes(Dataset):
 
 class self_supervised_power(Dataset):
 
-    def __init__(self, root, co_transform=None, subset='train'):
+    def __init__(self, root, co_transform, subset='train'):
         self.images_root = os.path.join(root, subset)
         self.labels_root = os.path.join(root, subset)
         
@@ -134,24 +136,28 @@ class self_supervised_power(Dataset):
 
         with open(image_path_city(self.images_root, filename), 'rb') as f:
             image = load_image(f).convert('RGB')
-        with open(image_path_city(self.labels_root, filenameGt), 'rb') as f:
-            label = load_image(f).convert('F')
+        label_array = genfromtxt(image_path_city(self.labels_root, filenameGt), delimiter=',', dtype="float32")
+        label_img = Image.fromarray(label_array, 'F')
 
         # print ("Float " + filenameGt)
-        # print (label)
+        # print (count_nonzero(label_array == -1.0))
 
-        float_tensor = torch.from_numpy(np.array(label))
-        print ("Float tensor is type " + float_tensor.type())
-        print ("Number of zero elements: " + str(torch.eq(float_tensor, 0.0).sum()))
-        print ("Number of negative elements: " + str(torch.lt(float_tensor, 0.0).sum()))
-        print ("Number of positive elements: " + str(torch.gt(float_tensor, 0.0).sum()))
-        print (float_tensor[torch.gt(float_tensor, 0.0)])
+        # print (list(label_img.getdata()).count(-1.0))
 
-        if self.co_transform is not None:
-            image, label = self.co_transform(image, label)
+        # label_tensor = torch.from_numpy(np.array(label_img))
+        # print ("Label tensor is type " + label_tensor.type())
+        # print ("Number of zero elements: " + str(torch.eq(label_tensor, 0).sum()))
+        # print ("Number of negative elements: " + str(torch.lt(label_tensor, 0).sum()))
+        # print ("Number of positive elements: " + str(torch.gt(label_tensor, 0).sum()))
 
-        # print ("Long tensor " + filenameGt)
-        # print (label)
+        # Image transformation which is also expected to return a tensor. 
+        image, label = self.co_transform(image, label_img)
+
+        # print ("Label is type " + label.type())
+        # print ("Number of zero elements: " + str(torch.eq(label, 0).sum()))
+        # print ("Number of negative elements: " + str(torch.lt(label, 0).sum()))
+        # print ("Number of positive elements: " + str(torch.gt(label, 0).sum()))
+        # print (label[torch.lt(label, 0)])
 
         return image, label
 

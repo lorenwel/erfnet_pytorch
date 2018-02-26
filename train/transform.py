@@ -97,10 +97,10 @@ class Colorize:
 
         # Remove negative color.
         if self.remove_negative:
-            mask = torch.eq(gray_image, 0)
-            color_image[0][mask] = 255
-            color_image[1][mask] = 255
-            color_image[2][mask] = 255
+            mask = torch.lt(gray_image, 0)
+            color_image[0][mask] = 0
+            color_image[1][mask] = 0
+            color_image[2][mask] = 0
 
         return color_image
 

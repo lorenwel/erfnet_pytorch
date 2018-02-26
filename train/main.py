@@ -90,13 +90,11 @@ class MSELossPosElements(torch.nn.Module):
         self.loss = torch.nn.MSELoss(False, False)
 
     def forward(self, outputs, targets):
-        cur_loss = self.loss(outputs.float(), targets.float()).squeeze()
+        # cur_loss = self.loss(outputs.float(), targets.float()).squeeze()
         # only compute loss for places where label exists.
-        masked_loss = cur_loss.masked_select(torch.gt(targets, 0.0))
-        if len(masked_loss.size()) == 0:
-            return 0.0
-        else:
-            return masked_loss.mean()
+        # masked_loss = cur_loss.masked_select(torch.gt(targets, 0.0))
+        # return masked_loss.mean()
+        return self.loss(outputs.float(), targets.float()).squeeze().masked_select(torch.gt(targets, 0.0)).mean()
 
 
 best_acc = 0
