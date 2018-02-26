@@ -20,7 +20,7 @@ from torchvision.transforms import Compose, CenterCrop, Normalize, Resize, Pad
 from torchvision.transforms import ToTensor, ToPILImage
 
 from dataset import VOC12,cityscapes,self_supervised_power
-from transform import Relabel, ToLabel, Colorize, FloatToLongLabel
+from transform import Relabel, ToLabel, Colorize, FloatToLongLabel, ToFloatLabel
 from visualize import Dashboard
 
 import importlib
@@ -32,7 +32,8 @@ NUM_CHANNELS = 3
 # NUM_CLASSES = 20 #pascal=22, cityscapes=20
 NUM_CLASSES = 1 # Turned into regression problem
 
-color_transform = Colorize(1000000, 2000000, True)  # min_val, max_val, remove negative
+color_transform_target = Colorize(1.0, 2.0, True)  # min_val, max_val, remove negative
+color_transform_output = Colorize(0.0, 1.0, True)  # min_val, max_val, remove negative
 image_transform = ToPILImage()
 
 #Augmentations - different function implemented to perform random augments on both image and target
@@ -66,7 +67,8 @@ class MyCoTransform(object):
         input = ToTensor()(input)
         if (self.enc):
             target = Resize(int(self.height/8), Image.NEAREST)(target)
-        target = FloatToLongLabel()(target)
+        target = ToFloatLabel()(target)
+        # print (target)
         # target = Relabel(255, 19)(target)
 
         return input, target
@@ -90,7 +92,7 @@ class MSELossPosElements(torch.nn.Module):
         self.loss = torch.nn.MSELoss(False, False)
 
     def forward(self, outputs, targets):
-        cur_loss = self.loss(outputs.float(), targets.float()).squeeze()
+        cur_loss = self.loss(outputs, targets).squeeze()
         # only compute loss for places where label exists.
         masked_loss = cur_loss.masked_select(torch.gt(targets, 0.0))
         return masked_loss.mean()
@@ -233,12 +235,12 @@ def train(args, model, enc=False):
                 #print("output", np.unique(outputs[0].cpu().max(0)[1].data.numpy()))
                 board.image(image, f'input (epoch: {epoch}, step: {step})')
                 if isinstance(outputs, list):   #merge gpu tensors
-                    board.image(color_transform(outputs[0][0].cpu().max(0)[1].data.unsqueeze(0)),
+                    board.image(color_transform_output(outputs[0][0].cpu().data),
                     f'output (epoch: {epoch}, step: {step})')
                 else:
-                    board.image(color_transform(outputs[0].cpu().max(0)[1].data.unsqueeze(0)),
+                    board.image(color_transform_output(outputs[0].cpu().data),
                     f'output (epoch: {epoch}, step: {step})')
-                board.image(color_transform(targets[0].cpu().data),
+                board.image(color_transform_target(targets[0].cpu().data),
                     f'target (epoch: {epoch}, step: {step})')
                 print ("Time to paint images: ", time.time() - start_time_plot)
             if args.steps_loss > 0 and step % args.steps_loss == 0:
@@ -290,12 +292,12 @@ def train(args, model, enc=False):
                 image = inputs[0].cpu().data
                 board.image(image, f'VAL input (epoch: {epoch}, step: {step})')
                 if isinstance(outputs, list):   #merge gpu tensors
-                    board.image(color_transform(outputs[0][0].cpu().max(0)[1].data.unsqueeze(0)),
+                    board.image(color_transform_output(outputs[0][0].cpu().data),
                     f'VAL output (epoch: {epoch}, step: {step})')
                 else:
-                    board.image(color_transform(outputs[0].cpu().max(0)[1].data.unsqueeze(0)),
+                    board.image(color_transform_output(outputs[0].cpu().data),
                     f'VAL output (epoch: {epoch}, step: {step})')
-                board.image(color_transform(targets[0].cpu().data),
+                board.image(color_transform_target(targets[0].cpu().data),
                     f'VAL target (epoch: {epoch}, step: {step})')
                 print ("Time to paint images: ", time.time() - start_time_plot)
             if args.steps_loss > 0 and step % args.steps_loss == 0:

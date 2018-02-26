@@ -72,9 +72,15 @@ class FloatToLongLabel:
         return torch.from_numpy(np.array(image)*1000000).long().unsqueeze(0)
 
 
+class ToFloatLabel:
+
+    def __call__(self, image):
+        return torch.from_numpy(np.array(image)).unsqueeze(0)
+
+
 class Colorize:
 
-    def __init__(self, min_val = 0, max_val = 1, remove_negative = False):
+    def __init__(self, min_val = 0.0, max_val = 1.0, remove_negative = False):
         self.min_val = min_val
         self.max_val = max_val
         self.factor = 255.0 / (max_val - min_val)
@@ -92,12 +98,12 @@ class Colorize:
         color_image[1][torch.le(gray_image, self.min_val)] = 255
 
         # TODO: This might be slow. 
-        color_image[0][mask] = ((gray_image[mask].float() - self.min_val) * self.factor).byte()
-        color_image[1][mask] = ((self.max_val - gray_image[mask].float()) * self.factor).byte()
+        color_image[0][mask] = ((gray_image[mask] - self.min_val) * self.factor).byte()
+        color_image[1][mask] = ((self.max_val - gray_image[mask]) * self.factor).byte()
 
         # Remove negative color.
         if self.remove_negative:
-            mask = torch.lt(gray_image, 0)
+            mask = torch.lt(gray_image, 0.0)
             color_image[0][mask] = 0
             color_image[1][mask] = 0
             color_image[2][mask] = 0
