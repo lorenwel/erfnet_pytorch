@@ -33,7 +33,8 @@ NUM_CHANNELS = 3
 NUM_CLASSES = 1 # Turned into regression problem
 
 color_transform_target = Colorize(1.0, 2.0, True)  # min_val, max_val, remove negative
-color_transform_output = ColorizeMinMax()  # Automatic color based on tensor min/max val
+color_transform_output = Colorize(1.0, 2.0, True)  # Automatic color based on tensor min/max val
+# color_transform_output = ColorizeMinMax()  # Automatic color based on tensor min/max val
 image_transform = ToPILImage()
 
 #Augmentations - different function implemented to perform random augments on both image and target
