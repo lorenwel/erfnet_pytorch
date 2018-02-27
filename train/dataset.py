@@ -153,11 +153,19 @@ class self_supervised_power(Dataset):
         # Image transformation which is also expected to return a tensor. 
         image, label = self.co_transform(image, label_img)
 
+
         # print ("Label is type " + label.type())
         # print ("Number of zero elements: " + str(torch.eq(label, 0).sum()))
         # print ("Number of negative elements: " + str(torch.lt(label, 0).sum()))
         # print ("Number of positive elements: " + str(torch.gt(label, 0).sum()))
         # print (label[torch.lt(label, 0)])
+
+        # Sanitize labels. 
+        label[label != label] = -1.0
+
+        n_nan = np.count_nonzero(np.isnan(label.numpy()))
+        if n_nan > 0:
+            print("File " + filenameGt + " produces nan " + str(n_nan))
 
         return image, label
 
