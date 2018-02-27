@@ -78,6 +78,40 @@ class ToFloatLabel:
         return torch.from_numpy(np.array(image)).unsqueeze(0)
 
 
+
+def getColorImageFromMinMax(gray_image, min_val, max_val, factor_val = None):
+    if factor_val is None:
+        factor_val = 255.0 / (max_val - min_val)
+
+    size = gray_image.size()
+    color_image = torch.ByteTensor(3, size[1], size[2]).fill_(0)
+    # Pixels in interval.
+    mask = torch.lt(gray_image, max_val) & torch.gt(gray_image, min_val)
+    # Color pixels greater than max_val green.
+    color_image[0][torch.ge(gray_image, max_val)] = 255
+    # Color pixels less than min_val green.
+    color_image[1][torch.le(gray_image, min_val)] = 255
+
+    # TODO: This might be slow. 
+    color_image[0][mask] = ((gray_image[mask] - min_val) * factor_val).byte()
+    color_image[1][mask] = ((max_val - gray_image[mask]) * factor_val).byte()
+
+    return color_image
+
+
+
+
+class ColorizeMinMax:
+
+    def __call__(self, gray_image):
+        min_val = gray_image.min()
+        max_val = gray_image.max()
+
+        return getColorImageFromMinMax(gray_image, min_val, max_val)
+
+
+
+
 class Colorize:
 
     def __init__(self, min_val = 0.0, max_val = 1.0, remove_negative = False):
@@ -87,19 +121,7 @@ class Colorize:
         self.remove_negative = remove_negative
 
     def __call__(self, gray_image):
-        size = gray_image.size()
-        color_image = torch.ByteTensor(3, size[1], size[2]).fill_(0)
-
-        # Pixels in interval.
-        mask = torch.lt(gray_image, self.max_val) & torch.gt(gray_image, self.min_val)
-        # Color pixels greater than max_val green.
-        color_image[0][torch.ge(gray_image, self.max_val)] = 255
-        # Color pixels less than min_val green.
-        color_image[1][torch.le(gray_image, self.min_val)] = 255
-
-        # TODO: This might be slow. 
-        color_image[0][mask] = ((gray_image[mask] - self.min_val) * self.factor).byte()
-        color_image[1][mask] = ((self.max_val - gray_image[mask]) * self.factor).byte()
+        color_image = getColorImageFromMinMax(gray_image, self.min_val, self.max_val, self.factor)        
 
         # Remove negative color.
         if self.remove_negative:

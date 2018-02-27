@@ -20,7 +20,7 @@ from torchvision.transforms import Compose, CenterCrop, Normalize, Resize, Pad
 from torchvision.transforms import ToTensor, ToPILImage
 
 from dataset import VOC12,cityscapes,self_supervised_power
-from transform import Relabel, ToLabel, Colorize, FloatToLongLabel, ToFloatLabel
+from transform import Relabel, ToLabel, Colorize, ColorizeMinMax, FloatToLongLabel, ToFloatLabel
 from visualize import Dashboard
 
 import importlib
@@ -33,7 +33,7 @@ NUM_CHANNELS = 3
 NUM_CLASSES = 1 # Turned into regression problem
 
 color_transform_target = Colorize(1.0, 2.0, True)  # min_val, max_val, remove negative
-color_transform_output = Colorize(0.0, 1.0, True)  # min_val, max_val, remove negative
+color_transform_output = ColorizeMinMax()  # Automatic color based on tensor min/max val
 image_transform = ToPILImage()
 
 #Augmentations - different function implemented to perform random augments on both image and target
