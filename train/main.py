@@ -309,7 +309,8 @@ def train(args, model, enc=False):
             if args.visualize and args.steps_plot > 0 and step % args.steps_plot == 0:
                 start_time_plot = time.time()
                 image = inputs[0].cpu().data
-                board.image(image, f'VAL input (epoch: {epoch}, step: {step})')
+                # board.image(image, f'VAL input (epoch: {epoch}, step: {step})')
+                writer.add_image("val/input", image, step)
                 if isinstance(outputs, list):   #merge gpu tensors
                     # board.image(color_transform_output(outputs[0][0].cpu().data),
                     # f'VAL output (epoch: {epoch}, step: {step})')
