@@ -19,6 +19,8 @@ from torch.utils.data import DataLoader
 from torchvision.transforms import Compose, CenterCrop, Normalize, Resize, Pad
 from torchvision.transforms import ToTensor, ToPILImage
 
+from tensorboardX import SummaryWriter
+
 from dataset import VOC12,cityscapes,self_supervised_power
 from transform import Relabel, ToLabel, Colorize, ColorizeMinMax, FloatToLongLabel, ToFloatLabel
 from visualize import Dashboard
@@ -175,11 +177,21 @@ def train(args, model, enc=False):
 
     if args.visualize and args.steps_plot > 0:
         board = Dashboard(args.port)
+        writer = SummaryWriter()
+        log_base_dir = writer.file_writer.get_logdir() + "/"
+        print("Saving tensorboard log to: " + log_base_dir)
+        total_steps_train = 0
+        total_steps_val = 0
 
     for epoch in range(start_epoch, args.num_epochs+1):
         print("----- TRAINING - EPOCH", epoch, "-----")
 
         scheduler.step(epoch)    ## scheduler 2
+
+        # Create new run in summary writer. 
+        if args.visualize:
+            writer.close()
+            writer = SummaryWriter(log_base_dir + "epoch_" + str(epoch))
 
         epoch_loss = []
         time_train = []
@@ -230,22 +242,28 @@ def train(args, model, enc=False):
             if args.visualize and args.steps_plot > 0 and step % args.steps_plot == 0:
                 start_time_plot = time.time()
                 image = inputs[0].cpu().data
-                #image[0] = image[0] * .229 + .485
-                #image[1] = image[1] * .224 + .456
-                #image[2] = image[2] * .225 + .406
-                #print("output", np.unique(outputs[0].cpu().max(0)[1].data.numpy()))
-                board.image(image, f'input (epoch: {epoch}, step: {step})')
+                # board.image(image, f'input (epoch: {epoch}, step: {step})')
+                writer.add_image("train/input", image, step)
                 if isinstance(outputs, list):   #merge gpu tensors
-                    board.image(color_transform_output(outputs[0][0].cpu().data),
-                    f'output (epoch: {epoch}, step: {step})')
+                    # board.image(color_transform_output(outputs[0][0].cpu().data),
+                    # f'output (epoch: {epoch}, step: {step})')
+                    writer.add_image("train/output", color_transform_output(outputs[0][0].cpu().data), step)
                 else:
-                    board.image(color_transform_output(outputs[0].cpu().data),
-                    f'output (epoch: {epoch}, step: {step})')
-                board.image(color_transform_target(targets[0].cpu().data),
-                    f'target (epoch: {epoch}, step: {step})')
+                    # board.image(color_transform_output(outputs[0].cpu().data),
+                    # f'output (epoch: {epoch}, step: {step})')
+                    writer.add_image("train/output", color_transform_output(outputs[0].cpu().data), step)
+                # board.image(color_transform_target(targets[0].cpu().data),
+                #     f'target (epoch: {epoch}, step: {step})')
+                writer.add_image("train/target", color_transform_target(targets[0].cpu().data), step)
                 print ("Time to paint images: ", time.time() - start_time_plot)
             if args.steps_loss > 0 and step % args.steps_loss == 0:
-                average = sum(epoch_loss) / len(epoch_loss)
+                len_epoch_loss = len(epoch_loss)
+                average = sum(epoch_loss) / len_epoch_loss
+                for ind, val in enumerate(epoch_loss):
+                    writer.add_scalar("train/loss", val, total_steps_train + ind)
+                # Clear loss for next loss print iteration.
+                total_steps_train += len_epoch_loss
+                epoch_loss = []
                 print(f'loss: {average:0.4} (epoch: {epoch}, step: {step})', 
                         "// Avg time/img: %.4f s" % (sum(time_train) / len(time_train) / args.batch_size))
 
@@ -293,16 +311,24 @@ def train(args, model, enc=False):
                 image = inputs[0].cpu().data
                 board.image(image, f'VAL input (epoch: {epoch}, step: {step})')
                 if isinstance(outputs, list):   #merge gpu tensors
-                    board.image(color_transform_output(outputs[0][0].cpu().data),
-                    f'VAL output (epoch: {epoch}, step: {step})')
+                    # board.image(color_transform_output(outputs[0][0].cpu().data),
+                    # f'VAL output (epoch: {epoch}, step: {step})')
+                    writer.add_image("val/output", color_transform_output(outputs[0][0].cpu().data), step)
                 else:
-                    board.image(color_transform_output(outputs[0].cpu().data),
-                    f'VAL output (epoch: {epoch}, step: {step})')
-                board.image(color_transform_target(targets[0].cpu().data),
-                    f'VAL target (epoch: {epoch}, step: {step})')
+                    # board.image(color_transform_output(outputs[0].cpu().data),
+                    # f'VAL output (epoch: {epoch}, step: {step})')
+                    writer.add_image("val/output", color_transform_output(outputs[0].cpu().data), step)
+                # board.image(color_transform_target(targets[0].cpu().data),
+                #     f'VAL target (epoch: {epoch}, step: {step})')
+                writer.add_image("val/target", color_transform_target(targets[0].cpu().data), step)
                 print ("Time to paint images: ", time.time() - start_time_plot)
             if args.steps_loss > 0 and step % args.steps_loss == 0:
-                average = sum(epoch_loss_val) / len(epoch_loss_val)
+                len_epoch_loss_val = len(epoch_loss_val)
+                average = sum(epoch_loss_val) / len_epoch_loss_val
+                for ind, val in enumerate(epoch_loss_val):
+                    writer.add_scalar("val/loss", val, total_steps_val + ind)
+                total_steps_val += len_epoch_loss_val
+                epoch_loss_val = []
                 print(f'VAL loss: {average:0.4} (epoch: {epoch}, step: {step})', 
                         "// Avg time/img: %.4f s" % (sum(time_val) / len(time_val) / args.batch_size))
                        
