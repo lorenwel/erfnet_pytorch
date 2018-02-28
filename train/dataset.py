@@ -23,8 +23,8 @@ def is_label(filename):
 def is_self_supervised_image(filename):
     return filename.endswith("_img.bmp")
 
-def is_self_supervised_label(filename):
-    return filename.endswith("_label.csv")
+def is_self_supervised_label(filename, ext="npy"):
+    return filename.endswith("_label." + ext)
 
 def image_path(root, basename, extension):
     return os.path.join(root, f'{basename}{extension}')
@@ -112,12 +112,14 @@ class cityscapes(Dataset):
 
 class self_supervised_power(Dataset):
 
-    def __init__(self, root, co_transform, subset='train'):
+    def __init__(self, root, co_transform, subset='train', file_format="npy"):
         self.images_root = os.path.join(root, subset)
         self.labels_root = os.path.join(root, subset)
+        self.file_format = file_format
         
         print ("Image root is: " + self.images_root)
         print ("Label root is: " + self.labels_root)
+        print ("Load files with extension: " + self.file_format)
 
         self.filenames = [os.path.join(dp, f) for dp, dn, fn in os.walk(os.path.expanduser(self.images_root), followlinks=True) for f in fn if is_self_supervised_image(f)]
         self.filenames.sort()
@@ -136,7 +138,14 @@ class self_supervised_power(Dataset):
 
         with open(image_path_city(self.images_root, filename), 'rb') as f:
             image = load_image(f).convert('RGB')
-        label_array = genfromtxt(image_path_city(self.labels_root, filenameGt), delimiter=',', dtype="float32")
+        label_array = None
+        if self.file_format == "npy":
+            label_array = np.load(image_path_city(self.labels_root, filenameGt))
+        elif self.file_format == "csv":
+            label_array = genfromtxt(image_path_city(self.labels_root, filenameGt), delimiter=',', dtype="float32")
+        else:
+            print("Unsupported file format " + self.file_format)
+
         label_img = Image.fromarray(label_array, 'F')
 
         # print ("Float " + filenameGt)
@@ -161,7 +170,8 @@ class self_supervised_power(Dataset):
         # print (label[torch.lt(label, 0)])
 
         # Sanitize labels. 
-        label[label != label] = -1.0
+        if self.file_format == "csv":
+            label[label != label] = -1.0
 
         n_nan = np.count_nonzero(np.isnan(label.numpy()))
         if n_nan > 0:
