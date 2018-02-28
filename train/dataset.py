@@ -125,7 +125,7 @@ class self_supervised_power(Dataset):
         self.filenames.sort()
         print ("Found " + str(len(self.filenames)) + " images.")
 
-        self.filenamesGt = [os.path.join(dp, f) for dp, dn, fn in os.walk(os.path.expanduser(self.labels_root), followlinks=True) for f in fn if is_self_supervised_label(f)]
+        self.filenamesGt = [os.path.join(dp, f) for dp, dn, fn in os.walk(os.path.expanduser(self.labels_root), followlinks=True) for f in fn if is_self_supervised_label(f, self.file_format)]
         self.filenamesGt.sort()
         print ("Found " + str(len(self.filenamesGt)) + " labels.")
 
