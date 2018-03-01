@@ -79,42 +79,41 @@ class ToFloatLabel:
 
 
 
-def getColorImageFromMinMax(gray_image, min_val, max_val, factor_val = None, extend=False):
+def getColorImageFromMinMax(gray_image, min_val, max_val, factor_val = None, extend=False, white_val = 1.0):
     if factor_val is None:
-        factor_val = 255.0 / (max_val - min_val)
+        factor_val = white_val / (max_val - min_val)
 
     size = gray_image.size()
-    color_image = torch.ByteTensor(3, size[1], size[2]).fill_(0)
+    color_image = torch.FloatTensor(3, size[1], size[2]).fill_(0.0)
     # Pixels in interval.
     mask = torch.lt(gray_image, max_val) & torch.gt(gray_image, min_val)
     # Color pixels greater than max_val green.
     mask_ge_max = torch.ge(gray_image, max_val)
-    color_image[0][mask_ge_max] = 255
+    color_image[0][mask_ge_max] = white_val
     # Color pixels less than min_val green.
     mask_le_min = torch.le(gray_image, min_val)
-    color_image[1][mask_le_min] = 255
+    color_image[1][mask_le_min] = white_val
     # Compute pixel values in interval. 
     # TODO: This might be slow. 
-    color_image[0][mask] = ((gray_image[mask] - min_val) * factor_val).byte()
-    color_image[1][mask] = ((max_val - gray_image[mask]) * factor_val).byte()
+    color_image[0][mask] = ((gray_image[mask] - min_val) * factor_val)
+    color_image[1][mask] = ((max_val - gray_image[mask]) * factor_val)
 
     # Extend past min max values to avoid saturation. 
     if extend:
         # Extend max value
         new_max = 2*max_val - min_val
         mask_ext_max = mask_ge_max & torch.lt(gray_image, new_max)
-        color_image[0][mask_ext_max] = ((max_val - gray_image[mask_ext_max]) * factor_val).byte()
+        color_image[0][mask_ext_max] = ((max_val - gray_image[mask_ext_max]) * factor_val)
         # Clip above new max.
         color_image[0][torch.ge(gray_image, new_max)] = 0
         # Extend min value
         new_min = 2*min_val - max_val
         mask_ext_min = mask_le_min & torch.gt(gray_image, new_min)
-        color_image[0][mask_le_min] = ((min_val - gray_image[mask_le_min]) * factor_val).byte()
-        color_image[2][mask_le_min] = ((min_val - gray_image[mask_le_min]) * factor_val).byte()
+        color_image[0][mask_le_min] = ((min_val - gray_image[mask_le_min]) * factor_val)
+        color_image[2][mask_le_min] = ((min_val - gray_image[mask_le_min]) * factor_val)
         # Clip below new min
-        color_image[0][torch.le(gray_image, new_min)] = 255
-        color_image[2][torch.le(gray_image, new_min)] = 255
-
+        color_image[0][torch.le(gray_image, new_min)] = white_val
+        color_image[2][torch.le(gray_image, new_min)] = white_val
 
     return color_image
 
@@ -134,15 +133,16 @@ class ColorizeMinMax:
 
 class Colorize:
 
-    def __init__(self, min_val = 0.0, max_val = 1.0, remove_negative = False, extend=False):
+    def __init__(self, min_val = 0.0, max_val = 1.0, remove_negative = False, extend=False, white_val=1.0):
         self.min_val = min_val
         self.max_val = max_val
-        self.factor = 255.0 / (max_val - min_val)
+        self.white_val = white_val
+        self.factor = white_val / (max_val - min_val)
         self.remove_negative = remove_negative
         self.extend = extend
 
     def __call__(self, gray_image):
-        color_image = getColorImageFromMinMax(gray_image, self.min_val, self.max_val, self.factor, self.extend)
+        color_image = getColorImageFromMinMax(gray_image, self.min_val, self.max_val, self.factor, self.extend, self.white_val)
 
         # Remove negative color.
         if self.remove_negative:
