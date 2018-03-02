@@ -153,9 +153,18 @@ def train(args, model, enc=False):
     #TODO: reduce memory in first gpu: https://discuss.pytorch.org/t/multi-gpu-training-memory-usage-in-balance/4163/4        #https://github.com/pytorch/pytorch/issues/1893
 
     #optimizer = Adam(model.parameters(), 5e-4, (0.9, 0.999),  eps=1e-08, weight_decay=2e-4)     ## scheduler 1
-    optimizer = Adam(model.parameters(), 5e-4, (0.9, 0.999),  eps=1e-08, weight_decay=1e-4)      ## scheduler 2
+    optimizer = Adam(model.parameters(), 5e-4, (0.9, 0.999),  eps=1e-08, weight_decay=1e-6)      ## scheduler 2
 
     start_epoch = 1
+
+    if args.pretrained:
+        pretrained = torch.load(args.pretrained)
+        start_epoch = pretrained['epoch']
+        model.load_state_dict(pretrained['state_dict'])
+        optimizer.load_state_dict(pretrained['optimizer'])
+        print("Loaded pretrained model")
+        start_epoch = 1
+
     if args.resume:
         #Must load weights, optimizer, epoch and best value. 
         if enc:
@@ -509,6 +518,7 @@ if __name__ == '__main__':
     parser.add_argument('--savedir', required=True)
     parser.add_argument('--decoder', action='store_true')
     parser.add_argument('--pretrainedEncoder') #, default="../trained_models/erfnet_encoder_pretrained.pth.tar")
+    parser.add_argument('--pretrained') #, default="../trained_models/erfnet_encoder_pretrained.pth.tar")
     parser.add_argument('--visualize', action='store_true')
 
     parser.add_argument('--iouTrain', action='store_true', default=False) #recommended: False (takes more time to train otherwise)
