@@ -54,6 +54,7 @@ class MyCoTransform(object):
         input =  Resize(self.height, Image.BILINEAR)(input)
         target = Resize(self.height, Image.NEAREST)(target)
 
+        # start_time = time.time()
 
         if(self.augment):
             # Appearance changes.
@@ -94,6 +95,23 @@ class MyCoTransform(object):
             target = ImageOps.expand(target, border=(transX,transY,0,0), fill= -1.0) #pad label filling with -1
             input = input.crop((0, 0, input.size[0]-transX, input.size[1]-transY))
             target = target.crop((0, 0, target.size[0]-transX, target.size[1]-transY))   
+
+            # Random crop while preserving aspect ratio and divisibility by 8
+            while True:
+                crop_val = np.random.randint(11)
+                # Assumes base image is 480x640
+                img_size = np.array([32, 24]) * (20-crop_val)
+                hor_pos = int(np.random.rand() * (640 - img_size[0]))
+                input = input.crop((hor_pos, 480 - img_size[1], hor_pos + img_size[0], 480))
+                target = target.crop((hor_pos, 480 - img_size[1], hor_pos + img_size[0], 480))
+                target_test = np.array(target, dtype="float32")
+                # print(target_test.shape, " offset ", hor_pos)
+                # Condition to make sure we have crop containing footprints
+                if (np.any(target_test > 0.0) or img_size[0] == 640):
+                    break
+
+
+        # print("Augmentation took ", time.time() - start_time, " seconds")
 
         input = ToTensor()(input)
         if (self.enc):
