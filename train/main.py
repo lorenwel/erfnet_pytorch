@@ -10,7 +10,7 @@ import numpy as np
 import torch
 import math
 
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageEnhance, ImageFilter
 from argparse import ArgumentParser
 
 from torch.optim import SGD, Adam, lr_scheduler
@@ -18,6 +18,9 @@ from torch.autograd import Variable
 from torch.utils.data import DataLoader
 from torchvision.transforms import Compose, CenterCrop, Normalize, Resize, Pad
 from torchvision.transforms import ToTensor, ToPILImage
+
+from scipy import ndimage
+from numpy.lib.stride_tricks import as_strided
 
 from tensorboardX import SummaryWriter
 
@@ -51,7 +54,32 @@ class MyCoTransform(object):
         input =  Resize(self.height, Image.BILINEAR)(input)
         target = Resize(self.height, Image.NEAREST)(target)
 
+
         if(self.augment):
+            # Appearance changes.
+            rand_val = np.random.randn(4)/4 + 1.0    # Generate rand around 1
+            sharpness = ImageEnhance.Sharpness(input)
+            color = ImageEnhance.Color(sharpness.enhance(rand_val[0]))
+            brightness = ImageEnhance.Brightness(color.enhance(rand_val[1]))
+            contrast = ImageEnhance.Contrast(brightness.enhance(rand_val[2]))
+            input = contrast.enhance(rand_val[3])
+
+            # Smooth out target. 
+            filter_size = 9
+            target_array = np.array(target, dtype="float32")
+            mask = target_array < 0
+            target_filtered = np.copy(target_array)
+            target_filtered[mask] = np.nan
+            M = target_array.shape[0] - filter_size + 1
+            N = target_array.shape[1] - filter_size + 1
+            target_strided = as_strided(target_filtered, (M, N, filter_size, filter_size), 2*target_filtered.strides)
+            target_strided = target_strided.copy().reshape((M, N, filter_size*filter_size))
+            edge_length = int((filter_size-1)/2)
+            target_filtered[edge_length:M+edge_length, edge_length:N+edge_length] = np.nanmean(target_strided, axis=2)
+            target_filtered[np.isnan(target_filtered)] = -1.0
+            target_filtered[mask] = target_array[mask]
+            target = Image.fromarray(target_filtered, 'F')
+
             # Random hflip
             hflip = random.random()
             if (hflip < 0.5):
@@ -63,7 +91,7 @@ class MyCoTransform(object):
             transY = random.randint(-2, 2)
 
             input = ImageOps.expand(input, border=(transX,transY,0,0), fill=0)
-            target = ImageOps.expand(target, border=(transX,transY,0,0), fill= -1.0) #pad label filling with 255
+            target = ImageOps.expand(target, border=(transX,transY,0,0), fill= -1.0) #pad label filling with -1
             input = input.crop((0, 0, input.size[0]-transX, input.size[1]-transY))
             target = target.crop((0, 0, target.size[0]-transX, target.size[1]-transY))   
 
