@@ -102,12 +102,14 @@ class MyCoTransform(object):
                 # Assumes base image is 480x640
                 img_size = np.array([32, 24]) * (20-crop_val)
                 hor_pos = int(np.random.rand() * (640 - img_size[0]))
-                input = input.crop((hor_pos, 480 - img_size[1], hor_pos + img_size[0], 480))
-                target = target.crop((hor_pos, 480 - img_size[1], hor_pos + img_size[0], 480))
-                target_test = np.array(target, dtype="float32")
-                # print(target_test.shape, " offset ", hor_pos)
+                input_crop = input.crop((hor_pos, 480 - img_size[1], hor_pos + img_size[0], 480))
+                # input.show()
+                target_crop = target.crop((hor_pos, 480 - img_size[1], hor_pos + img_size[0], 480))
+                target_test = np.array(target_crop, dtype="float32")
                 # Condition to make sure we have crop containing footprints
-                if (np.any(target_test > 0.0) or img_size[0] == 640):
+                if (img_size[0] == 640 or np.any(target_test > 0.0)):
+                    input = input_crop
+                    target = target_crop
                     break
 
 
