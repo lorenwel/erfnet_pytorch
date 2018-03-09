@@ -64,6 +64,7 @@ class non_bottleneck_1d (nn.Module):
 class Encoder(nn.Module):
     def __init__(self, num_classes):
         super().__init__()
+        print("Using standard encoder.")
         self.initial_block = DownsamplerBlock(3,16)
 
         self.layers = nn.ModuleList()

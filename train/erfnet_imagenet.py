@@ -64,6 +64,7 @@ class non_bottleneck_1d (nn.Module):
 class Encoder(nn.Module):
     def __init__(self):
         super().__init__()
+        print("Using imagenet encoder.")
         self.initial_block = DownsamplerBlock(3,16)
 
         self.layers = nn.ModuleList()
