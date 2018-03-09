@@ -98,7 +98,7 @@ class MyCoTransform(object):
 
             # Random crop while preserving aspect ratio and divisibility by 8
             while True:
-                crop_val = np.random.randint(11)
+                crop_val = np.random.randint(6)
                 # Assumes base image is 480x640
                 img_size = np.array([32, 24]) * (20-crop_val)
                 hor_pos = int(np.random.rand() * (640 - img_size[0]))
