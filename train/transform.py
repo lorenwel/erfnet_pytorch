@@ -154,6 +154,19 @@ class Colorize:
         return color_image
 
 
+
+
+class ColorizeWithProb:
+
+    def __init__(self, min_val = 0.0, max_val = 1.0, remove_negative = False, extend=False, white_val=1.0):
+        self.func = Colorize(min_val, max_val, remove_negative, extend, white_val)
+
+    def __call__(self, prob, power):
+        max_prob, max_ind = prob.max(dim=0, keepdim=True)
+
+        return self.func((power.expand(prob.size())).gather(0, max_ind))
+
+
 # class Colorize:
 
 #     def __init__(self, min_val = 0, max_val = 1, remove_negative = False):

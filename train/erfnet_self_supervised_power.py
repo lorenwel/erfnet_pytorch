@@ -108,8 +108,21 @@ class UpsamplerBlock (nn.Module):
         output = self.bn(output)
         return F.relu(output)
 
+class SoftMaxConv (nn.Module):
+    def __init__(self, softmax_classes):
+        super().__init__()
+
+        print("Added intermediate softmax layer with ", softmax_classes, " classes")
+        self.convolution = nn.ConvTranspose2d( 16, softmax_classes, 2, stride=2, padding=0, output_padding=0, bias=True)
+
+    def forward(self, input):
+        output = self.convolution(input)
+        output = torch.nn.functional.softmax(output, dim=1)
+
+        return output
+
 class Decoder (nn.Module):
-    def __init__(self, num_classes):
+    def __init__(self, num_classes, softmax_classes):
         super().__init__()
 
         self.layers = nn.ModuleList()
@@ -122,7 +135,11 @@ class Decoder (nn.Module):
         self.layers.append(non_bottleneck_1d(16, 0, 1))
         self.layers.append(non_bottleneck_1d(16, 0, 1))
 
-        self.output_conv = nn.ConvTranspose2d( 16, num_classes, 2, stride=2, padding=0, output_padding=0, bias=True)
+        if softmax_classes > 0:
+            self.output_conv = SoftMaxConv(softmax_classes)
+        else:
+            self.output_conv = nn.ConvTranspose2d( 16, num_classes, 2, stride=2, padding=0, output_padding=0, bias=True)
+
 
     def forward(self, input):
         output = input
@@ -136,18 +153,21 @@ class Decoder (nn.Module):
 
 #ERFNet
 class Net(nn.Module):
-    def __init__(self, num_classes, encoder=None):  #use encoder to pass pretrained encoder
+    def __init__(self, num_classes, encoder=None, softmax_classes=0):  #use encoder to pass pretrained encoder
         super().__init__()
+
+        self.class_power = torch.nn.Parameter(torch.ones(1,softmax_classes,1,1))
 
         if (encoder == None):
             self.encoder = Encoder(num_classes)
         else:
             self.encoder = encoder
-        self.decoder = Decoder(num_classes)
+        self.decoder = Decoder(num_classes, softmax_classes)
 
     def forward(self, input, only_encode=False):
         if only_encode:
             return self.encoder.forward(input, predict=True)
         else:
             output = self.encoder(input)    #predict=False by default
-            return self.decoder.forward(output)
+            output = self.decoder.forward(output)
+            return output, self.class_power

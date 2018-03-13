@@ -25,7 +25,7 @@ from numpy.lib.stride_tricks import as_strided
 from tensorboardX import SummaryWriter
 
 from dataset import VOC12,cityscapes,self_supervised_power
-from transform import Relabel, ToLabel, Colorize, ColorizeMinMax, FloatToLongLabel, ToFloatLabel
+from transform import Relabel, ToLabel, Colorize, ColorizeMinMax, ColorizeWithProb, FloatToLongLabel, ToFloatLabel
 from visualize import Dashboard
 
 import importlib
@@ -36,9 +36,10 @@ from shutil import copyfile
 NUM_CHANNELS = 3
 # NUM_CLASSES = 20 #pascal=22, cityscapes=20
 NUM_CLASSES = 1 # Turned into regression problem
+NUM_SOFTMAX = 20
 
 color_transform_target = Colorize(1.0, 2.0, remove_negative=True, white_val=1.0)  # min_val, max_val, remove negative
-color_transform_output = Colorize(1.0, 2.0, remove_negative=False, extend=True, white_val=1.0)  # Automatic color based on tensor min/max val
+color_transform_output = ColorizeWithProb(1.0, 2.0, remove_negative=False, extend=True, white_val=1.0)  # Automatic color based on tensor min/max val
 # color_transform_output = ColorizeMinMax()  # Automatic color based on tensor min/max val
 image_transform = ToPILImage()
 
@@ -142,10 +143,13 @@ class MSELossPosElements(torch.nn.Module):
 
         self.loss = torch.nn.MSELoss(False, False)
 
-    def forward(self, outputs, targets):
-        cur_loss = self.loss(outputs, targets).squeeze()
+    def forward(self, output_prob, output_cost, targets):
+        shape = output_prob.size()
+        cur_loss = self.loss(output_cost.expand(shape), targets.expand(shape))
+        # cur_loss = self.loss(output_prob.expand(shape), targets.expand(shape))
+        weighted_loss = cur_loss * output_prob
         # only compute loss for places where label exists.
-        masked_loss = cur_loss.masked_select(torch.gt(targets, 0.0))
+        masked_loss = weighted_loss.masked_select(torch.gt(targets, 0.0))
         return masked_loss.mean()
 
 
@@ -265,6 +269,7 @@ def train(args, model, enc=False):
             usedLr = float(param_group['lr'])
 
         model.train()
+
         for step, (images, labels) in enumerate(loader):
 
             start_time = time.time()
@@ -278,12 +283,13 @@ def train(args, model, enc=False):
 
             inputs = Variable(images)
             targets = Variable(labels)
-            outputs = model(inputs, only_encode=enc)
+            # class probability, power cost of class. 
+            output_prob, output_power = model(inputs, only_encode=enc)
 
             #print("targets", np.unique(targets[:, 0].cpu().data.numpy()))
 
             optimizer.zero_grad()
-            loss = criterion(outputs, targets[:, 0])
+            loss = criterion(output_prob, output_power, targets)
             loss.backward()
             optimizer.step()
 
@@ -301,14 +307,14 @@ def train(args, model, enc=False):
                 image = inputs[0].cpu().data
                 # board.image(image, f'input (epoch: {epoch}, step: {step})')
                 writer.add_image("train/input", image, step)
-                if isinstance(outputs, list):   #merge gpu tensors
+                if isinstance(output_prob, list):   #merge gpu tensors
                     # board.image(color_transform_output(outputs[0][0].cpu().data),
                     # f'output (epoch: {epoch}, step: {step})')
-                    writer.add_image("train/output", color_transform_output(outputs[0][0].cpu().data), step)
+                    writer.add_image("train/output", color_transform_output(output_prob[0][0].cpu().data, output_power[0][0].cpu().data), step)
                 else:
                     # board.image(color_transform_output(outputs[0].cpu().data),
                     # f'output (epoch: {epoch}, step: {step})')
-                    writer.add_image("train/output", color_transform_output(outputs[0].cpu().data), step)
+                    writer.add_image("train/output", color_transform_output(output_prob[0].cpu().data, output_power[0].cpu().data), step)
                 # board.image(color_transform_target(targets[0].cpu().data),
                 #     f'target (epoch: {epoch}, step: {step})')
                 writer.add_image("train/target", color_transform_target(targets[0].cpu().data), step)
@@ -350,7 +356,7 @@ def train(args, model, enc=False):
 
             inputs = Variable(images, volatile=True)    #volatile flag makes it free backward or outputs for eval
             targets = Variable(labels, volatile=True)
-            outputs = model(inputs, only_encode=enc) 
+            output_prob, output_power = model(inputs, only_encode=enc) 
 
             loss = criterion(outputs, targets[:, 0])
             epoch_loss_val.append(loss.data[0])
@@ -368,14 +374,14 @@ def train(args, model, enc=False):
                 image = inputs[0].cpu().data
                 # board.image(image, f'VAL input (epoch: {epoch}, step: {step})')
                 writer.add_image("val/input", image, step)
-                if isinstance(outputs, list):   #merge gpu tensors
+                if isinstance(output_prob, list):   #merge gpu tensors
                     # board.image(color_transform_output(outputs[0][0].cpu().data),
                     # f'VAL output (epoch: {epoch}, step: {step})')
-                    writer.add_image("val/output", color_transform_output(outputs[0][0].cpu().data), step)
+                    writer.add_image("val/output", color_transform_output(output_prob[0][0].cpu().data, output_power[0][0].cpu().data), step)
                 else:
                     # board.image(color_transform_output(outputs[0].cpu().data),
                     # f'VAL output (epoch: {epoch}, step: {step})')
-                    writer.add_image("val/output", color_transform_output(outputs[0].cpu().data), step)
+                    writer.add_image("val/output", color_transform_output(output_prob[0].cpu().data, output_power[0].cpu().data), step)
                 # board.image(color_transform_target(targets[0].cpu().data),
                 #     f'VAL target (epoch: {epoch}, step: {step})')
                 writer.add_image("val/target", color_transform_target(targets[0].cpu().data), step)
@@ -468,7 +474,7 @@ def main(args):
     #Load Model
     assert os.path.exists(args.model + ".py"), "Error: model definition not found"
     model_file = importlib.import_module(args.model)
-    model = model_file.Net(NUM_CLASSES)
+    model = model_file.Net(NUM_CLASSES, softmax_classes=NUM_SOFTMAX)
     copyfile(args.model + ".py", savedir + '/' + args.model + ".py")
     
     if args.cuda:
@@ -541,7 +547,7 @@ def main(args):
                 pretrainedEnc = pretrainedEnc.cpu()     #because loaded encoder is probably saved in cuda
         else:
             pretrainedEnc = next(model.children()).encoder
-        model = model_file.Net(NUM_CLASSES, encoder=pretrainedEnc)  #Add decoder to encoder
+        model = model_file.Net(NUM_CLASSES, encoder=pretrainedEnc, softmax_classes=NUM_SOFTMAX)  #Add decoder to encoder
         if args.cuda:
             model = torch.nn.DataParallel(model).cuda()
         #When loading encoder reinitialize weights for decoder because they are set to 0 when training dec
