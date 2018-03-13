@@ -25,7 +25,7 @@ from numpy.lib.stride_tricks import as_strided
 from tensorboardX import SummaryWriter
 
 from dataset import VOC12,cityscapes,self_supervised_power
-from transform import Relabel, ToLabel, Colorize, ColorizeMinMax, ColorizeWithProb, FloatToLongLabel, ToFloatLabel
+from transform import Relabel, ToLabel, Colorize, ColorizeMinMax, ColorizeWithProb, ColorizeClasses, FloatToLongLabel, ToFloatLabel
 from visualize import Dashboard
 
 import importlib
@@ -40,6 +40,7 @@ NUM_SOFTMAX = 20
 
 color_transform_target = Colorize(1.0, 2.0, remove_negative=True, white_val=1.0)  # min_val, max_val, remove negative
 color_transform_output = ColorizeWithProb(1.0, 2.0, remove_negative=False, extend=True, white_val=1.0)  # Automatic color based on tensor min/max val
+color_transform_classes = ColorizeClasses(NUM_SOFTMAX)  # Automatic color based on max class probability
 # color_transform_output = ColorizeMinMax()  # Automatic color based on tensor min/max val
 image_transform = ToPILImage()
 
@@ -296,10 +297,10 @@ def train(args, model, enc=False):
             epoch_loss.append(loss.data[0])
             time_train.append(time.time() - start_time)
 
-            if (doIouTrain):
-                #start_time_iou = time.time()
-                iouEvalTrain.addBatch(outputs.max(1)[1].unsqueeze(1).data, targets.data)
-                #print ("Time to add confusion matrix: ", time.time() - start_time_iou)      
+            # if (doIouTrain):
+            #     #start_time_iou = time.time()
+            #     iouEvalTrain.addBatch(outputs.max(1)[1].unsqueeze(1).data, targets.data)
+            #     #print ("Time to add confusion matrix: ", time.time() - start_time_iou)      
 
             #print(outputs.size())
             if args.visualize and args.steps_plot > 0 and step % args.steps_plot == 0:
@@ -311,10 +312,12 @@ def train(args, model, enc=False):
                     # board.image(color_transform_output(outputs[0][0].cpu().data),
                     # f'output (epoch: {epoch}, step: {step})')
                     writer.add_image("train/output", color_transform_output(output_prob[0][0].cpu().data, output_power[0][0].cpu().data), step)
+                    writer.add_image("train/classes", color_transform_classes(output_prob[0][0].cpu().data), step)
                 else:
                     # board.image(color_transform_output(outputs[0].cpu().data),
                     # f'output (epoch: {epoch}, step: {step})')
                     writer.add_image("train/output", color_transform_output(output_prob[0].cpu().data, output_power[0].cpu().data), step)
+                    writer.add_image("train/classes", color_transform_classes(output_prob[0].cpu().data), step)
                 # board.image(color_transform_target(targets[0].cpu().data),
                 #     f'target (epoch: {epoch}, step: {step})')
                 writer.add_image("train/target", color_transform_target(targets[0].cpu().data), step)
@@ -327,6 +330,12 @@ def train(args, model, enc=False):
                 # Clear loss for next loss print iteration.
                 total_steps_train += len_epoch_loss
                 epoch_loss = []
+                # Output class power costs
+                power_dict = {}
+                for ind, val in enumerate(output_power.squeeze()):
+                    power_dict[str(ind)] = val
+                writer.add_scalars("train/class_cost", power_dict, total_steps_train)
+                # Print current loss. 
                 print(f'loss: {average:0.4} (epoch: {epoch}, step: {step})', 
                         "// Avg time/img: %.4f s" % (sum(time_train) / len(time_train) / args.batch_size))
 
@@ -358,16 +367,16 @@ def train(args, model, enc=False):
             targets = Variable(labels, volatile=True)
             output_prob, output_power = model(inputs, only_encode=enc) 
 
-            loss = criterion(outputs, targets[:, 0])
+            loss = criterion(output_prob, output_power, targets)
             epoch_loss_val.append(loss.data[0])
             time_val.append(time.time() - start_time)
 
 
             #Add batch to calculate TP, FP and FN for iou estimation
-            if (doIouVal):
-                #start_time_iou = time.time()
-                iouEvalVal.addBatch(outputs.max(1)[1].unsqueeze(1).data, targets.data)
-                #print ("Time to add confusion matrix: ", time.time() - start_time_iou)
+            # if (doIouVal):
+            #     #start_time_iou = time.time()
+            #     iouEvalVal.addBatch(outputs.max(1)[1].unsqueeze(1).data, targets.data)
+            #     #print ("Time to add confusion matrix: ", time.time() - start_time_iou)
 
             if args.visualize and args.steps_plot > 0 and step % args.steps_plot == 0:
                 start_time_plot = time.time()
@@ -378,10 +387,12 @@ def train(args, model, enc=False):
                     # board.image(color_transform_output(outputs[0][0].cpu().data),
                     # f'VAL output (epoch: {epoch}, step: {step})')
                     writer.add_image("val/output", color_transform_output(output_prob[0][0].cpu().data, output_power[0][0].cpu().data), step)
+                    writer.add_image("val/classes", color_transform_classes(output_prob[0][0].cpu().data), step)
                 else:
                     # board.image(color_transform_output(outputs[0].cpu().data),
                     # f'VAL output (epoch: {epoch}, step: {step})')
                     writer.add_image("val/output", color_transform_output(output_prob[0].cpu().data, output_power[0].cpu().data), step)
+                    writer.add_image("val/classes", color_transform_classes(output_prob[0].cpu().data), step)
                 # board.image(color_transform_target(targets[0].cpu().data),
                 #     f'VAL target (epoch: {epoch}, step: {step})')
                 writer.add_image("val/target", color_transform_target(targets[0].cpu().data), step)

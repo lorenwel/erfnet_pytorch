@@ -114,9 +114,11 @@ class SoftMaxConv (nn.Module):
 
         print("Added intermediate softmax layer with ", softmax_classes, " classes")
         self.convolution = nn.ConvTranspose2d( 16, softmax_classes, 2, stride=2, padding=0, output_padding=0, bias=True)
+        self.dropout = torch.nn.Dropout2d(p=0.3)
 
     def forward(self, input):
         output = self.convolution(input)
+        output = self.dropout(output)
         output = torch.nn.functional.softmax(output, dim=1)
 
         return output
