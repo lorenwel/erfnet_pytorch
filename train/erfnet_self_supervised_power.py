@@ -8,6 +8,7 @@ import torch.nn as nn
 import torch.nn.init as init
 import torch.nn.functional as F
 
+import numpy as np
 
 class DownsamplerBlock (nn.Module):
     def __init__(self, ninput, noutput):
@@ -155,10 +156,17 @@ class Decoder (nn.Module):
 
 #ERFNet
 class Net(nn.Module):
-    def __init__(self, num_classes, encoder=None, softmax_classes=0):  #use encoder to pass pretrained encoder
+    def __init__(self, num_classes, encoder=None, softmax_classes=0, spread_class_power=False):  #use encoder to pass pretrained encoder
         super().__init__()
 
-        self.class_power = torch.nn.Parameter(torch.ones(1,softmax_classes,1,1))
+        if spread_class_power:
+            print("Spreading initial class power estimates to:")
+            init_vals = np.ndarray((1,softmax_classes,1,1), dtype="float32")
+            init_vals[0,:,0,0] = np.linspace(0.7, 2.0, softmax_classes)
+            print(init_vals[0,:,0,0])
+            self.class_power = torch.nn.Parameter(torch.from_numpy(init_vals))
+        else:
+            self.class_power = torch.nn.Parameter(torch.ones(1,softmax_classes,1,1))
 
         if (encoder == None):
             self.encoder = Encoder(num_classes)
