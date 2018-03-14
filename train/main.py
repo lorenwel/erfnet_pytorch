@@ -244,6 +244,8 @@ def train(args, model, enc=False):
         print("Saving tensorboard log to: " + log_base_dir)
         total_steps_train = 0
         total_steps_val = 0
+        average_loss_train = 0
+        average_loss_val = 0
 
     for epoch in range(start_epoch, args.num_epochs+1):
         print("----- TRAINING - EPOCH", epoch, "-----")
@@ -251,7 +253,7 @@ def train(args, model, enc=False):
         scheduler.step(epoch)    ## scheduler 2
 
         # Create new run in summary writer. 
-        if args.visualize:
+        if args.split_epoch_vis:
             writer.close()
             writer = SummaryWriter(log_base_dir + "epoch_" + str(epoch))
 
@@ -304,39 +306,44 @@ def train(args, model, enc=False):
 
             #print(outputs.size())
             if args.visualize and args.steps_plot > 0 and step % args.steps_plot == 0:
+                if args.split_epoch_vis:
+                    step_vis_no = step
+                else:
+                    step_vis_no = total_steps_train + len(epoch_loss)
                 start_time_plot = time.time()
                 image = inputs[0].cpu().data
                 # board.image(image, f'input (epoch: {epoch}, step: {step})')
-                writer.add_image("train/input", image, step)
+                writer.add_image("train/input", image, step_vis_no)
                 if isinstance(output_prob, list):   #merge gpu tensors
                     # board.image(color_transform_output(outputs[0][0].cpu().data),
                     # f'output (epoch: {epoch}, step: {step})')
-                    writer.add_image("train/output", color_transform_output(output_prob[0][0].cpu().data, output_power[0][0].cpu().data), step)
-                    writer.add_image("train/classes", color_transform_classes(output_prob[0][0].cpu().data), step)
+                    writer.add_image("train/output", color_transform_output(output_prob[0][0].cpu().data, output_power[0][0].cpu().data), step_vis_no)
+                    writer.add_image("train/classes", color_transform_classes(output_prob[0][0].cpu().data), step_vis_no)
                 else:
                     # board.image(color_transform_output(outputs[0].cpu().data),
                     # f'output (epoch: {epoch}, step: {step})')
-                    writer.add_image("train/output", color_transform_output(output_prob[0].cpu().data, output_power[0].cpu().data), step)
-                    writer.add_image("train/classes", color_transform_classes(output_prob[0].cpu().data), step)
+                    writer.add_image("train/output", color_transform_output(output_prob[0].cpu().data, output_power[0].cpu().data), step_vis_no)
+                    writer.add_image("train/classes", color_transform_classes(output_prob[0].cpu().data), step_vis_no)
                 # board.image(color_transform_target(targets[0].cpu().data),
                 #     f'target (epoch: {epoch}, step: {step})')
-                writer.add_image("train/target", color_transform_target(targets[0].cpu().data), step)
+                writer.add_image("train/target", color_transform_target(targets[0].cpu().data), step_vis_no)
                 print ("Time to paint images: ", time.time() - start_time_plot)
             if args.steps_loss > 0 and step % args.steps_loss == 0:
                 len_epoch_loss = len(epoch_loss)
-                average = sum(epoch_loss) / len_epoch_loss
+                average_loss_train = (average_loss_train * total_steps_train + sum(epoch_loss)) / (total_steps_train + len_epoch_loss)
                 for ind, val in enumerate(epoch_loss):
-                    writer.add_scalar("train/loss", val, total_steps_train + ind)
-                # Clear loss for next loss print iteration.
+                    writer.add_scalar("train/instant_loss", val, total_steps_train + ind)
                 total_steps_train += len_epoch_loss
-                epoch_loss = []
+                writer.add_scalar("train/average_loss", average_loss_train, total_steps_train)
+                # Clear loss for next loss print iteration.
                 # Output class power costs
                 power_dict = {}
                 for ind, val in enumerate(output_power.squeeze()):
                     power_dict[str(ind)] = val
-                writer.add_scalars("train/class_cost", power_dict, total_steps_train)
+                writer.add_scalars("params/class_cost", power_dict, total_steps_train)
+                epoch_loss = []
                 # Print current loss. 
-                print(f'loss: {average:0.4} (epoch: {epoch}, step: {step})', 
+                print(f'loss: {average_loss_train:0.4} (epoch: {epoch}, step: {step})', 
                         "// Avg time/img: %.4f s" % (sum(time_train) / len(time_train) / args.batch_size))
 
             
@@ -379,32 +386,37 @@ def train(args, model, enc=False):
             #     #print ("Time to add confusion matrix: ", time.time() - start_time_iou)
 
             if args.visualize and args.steps_plot > 0 and step % args.steps_plot == 0:
+                if args.split_epoch_vis:
+                    step_vis_no = step
+                else:
+                    step_vis_no = total_steps_val + len(epoch_loss_val)
                 start_time_plot = time.time()
                 image = inputs[0].cpu().data
                 # board.image(image, f'VAL input (epoch: {epoch}, step: {step})')
-                writer.add_image("val/input", image, step)
+                writer.add_image("val/input", image, step_vis_no)
                 if isinstance(output_prob, list):   #merge gpu tensors
                     # board.image(color_transform_output(outputs[0][0].cpu().data),
                     # f'VAL output (epoch: {epoch}, step: {step})')
-                    writer.add_image("val/output", color_transform_output(output_prob[0][0].cpu().data, output_power[0][0].cpu().data), step)
-                    writer.add_image("val/classes", color_transform_classes(output_prob[0][0].cpu().data), step)
+                    writer.add_image("val/output", color_transform_output(output_prob[0][0].cpu().data, output_power[0][0].cpu().data), step_vis_no)
+                    writer.add_image("val/classes", color_transform_classes(output_prob[0][0].cpu().data), step_vis_no)
                 else:
                     # board.image(color_transform_output(outputs[0].cpu().data),
                     # f'VAL output (epoch: {epoch}, step: {step})')
-                    writer.add_image("val/output", color_transform_output(output_prob[0].cpu().data, output_power[0].cpu().data), step)
-                    writer.add_image("val/classes", color_transform_classes(output_prob[0].cpu().data), step)
+                    writer.add_image("val/output", color_transform_output(output_prob[0].cpu().data, output_power[0].cpu().data), step_vis_no)
+                    writer.add_image("val/classes", color_transform_classes(output_prob[0].cpu().data), step_vis_no)
                 # board.image(color_transform_target(targets[0].cpu().data),
                 #     f'VAL target (epoch: {epoch}, step: {step})')
-                writer.add_image("val/target", color_transform_target(targets[0].cpu().data), step)
+                writer.add_image("val/target", color_transform_target(targets[0].cpu().data), step_vis_no)
                 print ("Time to paint images: ", time.time() - start_time_plot)
             if args.steps_loss > 0 and step % args.steps_loss == 0:
                 len_epoch_loss_val = len(epoch_loss_val)
-                average = sum(epoch_loss_val) / len_epoch_loss_val
+                average_loss_val = (average_loss_val * total_steps_val + sum(epoch_loss_val)) / (total_steps_val + len_epoch_loss_val)
                 for ind, val in enumerate(epoch_loss_val):
-                    writer.add_scalar("val/loss", val, total_steps_val + ind)
+                    writer.add_scalar("val/instant_loss", val, total_steps_val + ind)
                 total_steps_val += len_epoch_loss_val
+                writer.add_scalar("val/average_loss", average_loss_val, total_steps_val)
                 epoch_loss_val = []
-                print(f'VAL loss: {average:0.4} (epoch: {epoch}, step: {step})', 
+                print(f'VAL loss: {average_loss_val:0.4} (epoch: {epoch}, step: {step})', 
                         "// Avg time/img: %.4f s" % (sum(time_val) / len(time_val) / args.batch_size))
                        
 
@@ -585,6 +597,7 @@ if __name__ == '__main__':
     parser.add_argument('--pretrainedEncoder') #, default="../trained_models/erfnet_encoder_pretrained.pth.tar")
     parser.add_argument('--pretrained') #, default="../trained_models/erfnet_encoder_pretrained.pth.tar")
     parser.add_argument('--visualize', action='store_true')
+    parser.add_argument('--split_epoch_vis', action='store_true', default=False)
 
     parser.add_argument('--iouTrain', action='store_true', default=False) #recommended: False (takes more time to train otherwise)
     parser.add_argument('--iouVal', action='store_true', default=False)  
