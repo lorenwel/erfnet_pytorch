@@ -497,7 +497,7 @@ def main(args):
     #Load Model
     assert os.path.exists(args.model + ".py"), "Error: model definition not found"
     model_file = importlib.import_module(args.model)
-    model = model_file.Net(NUM_CLASSES, softmax_classes=NUM_SOFTMAX, spread_class_power=args.spread_init)
+    model = model_file.Net(NUM_CLASSES, softmax_classes=NUM_SOFTMAX, spread_class_power=args.spread_init, fix_class_power=args.fix_class_power)
     copyfile(args.model + ".py", savedir + '/' + args.model + ".py")
     
     if args.cuda:
@@ -570,7 +570,7 @@ def main(args):
                 pretrainedEnc = pretrainedEnc.cpu()     #because loaded encoder is probably saved in cuda
         else:
             pretrainedEnc = next(model.children()).encoder
-        model = model_file.Net(NUM_CLASSES, encoder=pretrainedEnc, softmax_classes=NUM_SOFTMAX, spread_class_power=args.spread_init)  #Add decoder to encoder
+        model = model_file.Net(NUM_CLASSES, encoder=pretrainedEnc, softmax_classes=NUM_SOFTMAX, spread_class_power=args.spread_init, fix_class_power=args.fix_class_power)  #Add decoder to encoder
         if args.cuda:
             model = torch.nn.DataParallel(model).cuda()
         #When loading encoder reinitialize weights for decoder because they are set to 0 when training dec
@@ -597,8 +597,9 @@ if __name__ == '__main__':
     parser.add_argument('--pretrainedEncoder') #, default="../trained_models/erfnet_encoder_pretrained.pth.tar")
     parser.add_argument('--pretrained') #, default="../trained_models/erfnet_encoder_pretrained.pth.tar")
     parser.add_argument('--visualize', action='store_true')
-    parser.add_argument('--split_epoch_vis', action='store_true', default=False)
-    parser.add_argument('--spread_init', action='store_true', default=False)
+    parser.add_argument('--split-epoch-vis', action='store_true', default=False)    # Split tensorboard output by epoch
+    parser.add_argument('--spread-init', action='store_true', default=False)    # Spread initial class power over interval [0.7,...,2.0]
+    parser.add_argument('--fix-class-power', action='store_true', default=False)    # Fix class power so that it is not optimized
 
     parser.add_argument('--iouTrain', action='store_true', default=False) #recommended: False (takes more time to train otherwise)
     parser.add_argument('--iouVal', action='store_true', default=False)  

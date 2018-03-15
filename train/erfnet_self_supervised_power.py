@@ -156,7 +156,7 @@ class Decoder (nn.Module):
 
 #ERFNet
 class Net(nn.Module):
-    def __init__(self, num_classes, encoder=None, softmax_classes=0, spread_class_power=False):  #use encoder to pass pretrained encoder
+    def __init__(self, num_classes, encoder=None, softmax_classes=0, spread_class_power=False, fix_class_power=False):  #use encoder to pass pretrained encoder
         super().__init__()
 
         if spread_class_power:
@@ -164,9 +164,16 @@ class Net(nn.Module):
             init_vals = np.ndarray((1,softmax_classes,1,1), dtype="float32")
             init_vals[0,:,0,0] = np.linspace(0.7, 2.0, softmax_classes)
             print(init_vals[0,:,0,0])
-            self.class_power = torch.nn.Parameter(torch.from_numpy(init_vals))
+            init_tensor = torch.from_numpy(init_vals)
         else:
-            self.class_power = torch.nn.Parameter(torch.ones(1,softmax_classes,1,1))
+            init_tensor = torch.ones(1,softmax_classes,1,1)
+
+        if fix_class_power:
+            self.class_power = torch.autograd.Variable(init_tensor).cuda()
+            print("Fixing class power")
+        else:
+            self.class_power = torch.nn.Parameter(init_tensor)
+
 
         if (encoder == None):
             self.encoder = Encoder(num_classes)
