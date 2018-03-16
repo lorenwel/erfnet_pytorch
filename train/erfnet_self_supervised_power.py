@@ -63,7 +63,7 @@ class non_bottleneck_1d (nn.Module):
 
 
 class Encoder(nn.Module):
-    def __init__(self, num_classes):
+    def __init__(self):
         super().__init__()
         print("Using self-supervised encoder.")
         self.initial_block = DownsamplerBlock(3,16)
@@ -84,7 +84,7 @@ class Encoder(nn.Module):
             self.layers.append(non_bottleneck_1d(128, 0.3, 16))
 
         #Only in encoder mode:
-        self.output_conv = nn.Conv2d(128, num_classes, 1, stride=1, padding=0, bias=True)
+        self.output_conv = nn.Conv2d(128, 1, 1, stride=1, padding=0, bias=True)
 
     def forward(self, input, predict=False):
         output = self.initial_block(input)
@@ -125,7 +125,7 @@ class SoftMaxConv (nn.Module):
         return output
 
 class Decoder (nn.Module):
-    def __init__(self, num_classes, softmax_classes):
+    def __init__(self, softmax_classes):
         super().__init__()
 
         self.layers = nn.ModuleList()
@@ -141,7 +141,7 @@ class Decoder (nn.Module):
         if softmax_classes > 0:
             self.output_conv = SoftMaxConv(softmax_classes)
         else:
-            self.output_conv = nn.ConvTranspose2d( 16, num_classes, 2, stride=2, padding=0, output_padding=0, bias=True)
+            self.output_conv = nn.ConvTranspose2d( 16, 1, 2, stride=2, padding=0, output_padding=0, bias=True)
 
 
     def forward(self, input):
@@ -156,30 +156,34 @@ class Decoder (nn.Module):
 
 #ERFNet
 class Net(nn.Module):
-    def __init__(self, num_classes, encoder=None, softmax_classes=0, spread_class_power=False, fix_class_power=False):  #use encoder to pass pretrained encoder
+    def __init__(self, encoder=None, softmax_classes=0, spread_class_power=False, fix_class_power=False):  #use encoder to pass pretrained encoder
         super().__init__()
 
-        if spread_class_power:
-            print("Spreading initial class power estimates to:")
-            init_vals = np.ndarray((1,softmax_classes,1,1), dtype="float32")
-            init_vals[0,:,0,0] = np.linspace(0.7, 2.0, softmax_classes)
-            print(init_vals[0,:,0,0])
-            init_tensor = torch.from_numpy(init_vals)
-        else:
-            init_tensor = torch.ones(1,softmax_classes,1,1)
+        self.softmax_classes = softmax_classes
 
-        if fix_class_power:
-            self.class_power = torch.autograd.Variable(init_tensor).cuda()
-            print("Fixing class power")
-        else:
-            self.class_power = torch.nn.Parameter(init_tensor)
+        # Initialize class power consumption only when we have discretized into classes. 
+        if softmax_classes > 0:
+            if spread_class_power:
+                print("Spreading initial class power estimates to:")
+                init_vals = np.ndarray((1,softmax_classes,1,1), dtype="float32")
+                init_vals[0,:,0,0] = np.linspace(0.7, 2.0, softmax_classes)
+                print(init_vals[0,:,0,0])
+                init_tensor = torch.from_numpy(init_vals)
+            else:
+                init_tensor = torch.ones(1,softmax_classes,1,1)
+
+            if fix_class_power:
+                self.class_power = torch.autograd.Variable(init_tensor).cuda()
+                print("Fixing class power")
+            else:
+                self.class_power = torch.nn.Parameter(init_tensor)
 
 
         if (encoder == None):
-            self.encoder = Encoder(num_classes)
+            self.encoder = Encoder()
         else:
             self.encoder = encoder
-        self.decoder = Decoder(num_classes, softmax_classes)
+        self.decoder = Decoder(softmax_classes)
 
     def forward(self, input, only_encode=False):
         if only_encode:
@@ -187,4 +191,7 @@ class Net(nn.Module):
         else:
             output = self.encoder(input)    #predict=False by default
             output = self.decoder.forward(output)
-            return output, self.class_power
+            if self.softmax_classes > 0:
+                return output, self.class_power
+            else:
+                return output

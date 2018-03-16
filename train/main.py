@@ -25,7 +25,7 @@ from numpy.lib.stride_tricks import as_strided
 from tensorboardX import SummaryWriter
 
 from dataset import VOC12,cityscapes,self_supervised_power
-from transform import Relabel, ToLabel, Colorize, ColorizeMinMax, ColorizeWithProb, ColorizeClasses, FloatToLongLabel, ToFloatLabel
+from transform import Relabel, ToLabel, Colorize, ColorizeMinMax, ColorizeWithProb, ColorizeClasses, FloatToLongLabel, ToFloatLabel, getMaxProbValue
 from visualize import Dashboard
 
 import importlib
@@ -35,12 +35,10 @@ from shutil import copyfile
 
 NUM_CHANNELS = 3
 # NUM_CLASSES = 20 #pascal=22, cityscapes=20
-NUM_CLASSES = 1 # Turned into regression problem
 NUM_SOFTMAX = 20
 
-color_transform_target = Colorize(1.0, 2.0, remove_negative=True, white_val=1.0)  # min_val, max_val, remove negative
-color_transform_output = ColorizeWithProb(1.0, 2.0, remove_negative=False, extend=True, white_val=1.0)  # Automatic color based on tensor min/max val
-color_transform_classes = ColorizeClasses(NUM_SOFTMAX)  # Automatic color based on max class probability
+color_transform_target = Colorize(1.0, 2.0, remove_negative=True, extend=True, white_val=1.0)  # min_val, max_val, remove negative
+color_transform_output = Colorize(1.0, 2.0, remove_negative=False, extend=True, white_val=1.0)  # Automatic color based on tensor min/max val
 # color_transform_output = ColorizeMinMax()  # Automatic color based on tensor min/max val
 image_transform = ToPILImage()
 
@@ -153,37 +151,65 @@ class MSELossPosElements(torch.nn.Module):
         masked_loss = weighted_loss.masked_select(torch.gt(targets, 0.0))
         return masked_loss.mean()
 
+class L1LossClassProbMasked(torch.nn.Module):
+
+    def __init__(self):
+        super().__init__()
+
+        self.loss = torch.nn.L1Loss(False, False)
+
+    def forward(self, output_prob, output_cost, targets):
+        shape = output_prob.size()
+        cur_loss = self.loss(output_cost.expand(shape), targets.expand(shape))
+        # cur_loss = self.loss(output_prob.expand(shape), targets.expand(shape))
+        weighted_loss = cur_loss * output_prob
+        # only compute loss for places where label exists.
+        masked_loss = weighted_loss.masked_select(torch.gt(targets, 0.0))
+        return masked_loss.mean()
+
+class L1LossMasked(torch.nn.Module):
+
+    def __init__(self):
+        super().__init__()
+
+        self.loss = torch.nn.L1Loss(False, False)
+
+    def forward(self, outputs, targets):
+        return self.loss(outputs, targets).masked_select(torch.gt(targets, 0.0)).mean()
+
 
 best_acc = 0
 
 def train(args, model, enc=False):
     global best_acc
 
-    #TODO: calculate weights by processing dataset histogram (now its being set by hand from the torch values)
-    #create a loder to run all images and calculate histogram of labels, then create weight array using class balancing
-
-    weight = torch.ones(NUM_CLASSES)
-    # We only have one class. 
-    if (enc):
-        weight[0] = 1.0
-    else:
-        weight[0] = 1.0
-
+    weight = torch.ones(1)
+    
     assert os.path.exists(args.datadir), "Error: datadir (dataset directory) could not be loaded"
 
+    # Set data loading variables
     co_transform = MyCoTransform(enc, augment=True, height=480)#1024)
     co_transform_val = MyCoTransform(enc, augment=False, height=480)#1024)
     dataset_train = self_supervised_power(args.datadir, co_transform, 'train')
     # dataset_train = self_supervised_power(args.datadir, None, 'train')
     dataset_val = self_supervised_power(args.datadir, co_transform_val, 'val')
 
+    if args.force_n_classes > 0:
+        color_transform_classes = ColorizeClasses(args.force_n_classes)  # Automatic color based on max class probability
+
     loader = DataLoader(dataset_train, num_workers=args.num_workers, batch_size=args.batch_size, shuffle=True)
     loader_val = DataLoader(dataset_val, num_workers=args.num_workers, batch_size=args.batch_size, shuffle=False)
 
     if args.cuda:
         weight = weight.cuda()
-    # criterion = CrossEntropyLoss2d(weight)
-    criterion = MSELossPosElements()     # MSE loss with averaging over mini-batch
+
+    # Set Loss functions
+    if args.force_n_classes > 0:
+        criterion = L1LossClassProbMasked() # L1 loss weighted with class prob with averaging over mini-batch
+    else:
+        criterion = L1LossMasked()     
+
+    criterion_val = L1LossMasked()     # L1 loss with averaging over mini-batch
     print(type(criterion))
 
     savedir = f'../save/{args.savedir}'
@@ -244,8 +270,6 @@ def train(args, model, enc=False):
         print("Saving tensorboard log to: " + log_base_dir)
         total_steps_train = 0
         total_steps_val = 0
-        average_loss_train = 0
-        average_loss_val = 0
 
     for epoch in range(start_epoch, args.num_epochs+1):
         print("----- TRAINING - EPOCH", epoch, "-----")
@@ -257,14 +281,15 @@ def train(args, model, enc=False):
             writer.close()
             writer = SummaryWriter(log_base_dir + "epoch_" + str(epoch))
 
+        average_loss_train = 0
+        average_loss_val = 0
+
         epoch_loss = []
         time_train = []
      
         doIouTrain = args.iouTrain   
         doIouVal =  args.iouVal      
 
-        if (doIouTrain):
-            iouEvalTrain = iouEval(NUM_CLASSES)
 
         usedLr = 0
         for param_group in optimizer.param_groups:
@@ -286,14 +311,29 @@ def train(args, model, enc=False):
 
             inputs = Variable(images)
             targets = Variable(labels)
-            # class probability, power cost of class. 
-            output_prob, output_power = model(inputs, only_encode=enc)
+            if (args.force_n_classes) > 0:
+                # Forced into discrete classes. 
+                output_prob, output_power = model(inputs, only_encode=enc)
+                optimizer.zero_grad()
+                loss = criterion(output_prob, output_power, targets)
+            else:
+                # Straight regressoin
+                output = model(inputs, only_encode=enc)
+                optimizer.zero_grad()
+                loss = criterion(output, targets)
 
             #print("targets", np.unique(targets[:, 0].cpu().data.numpy()))
 
-            optimizer.zero_grad()
-            loss = criterion(output_prob, output_power, targets)
+            # Do backward pass. 
             loss.backward()
+
+            # for name, param in model.named_parameters():
+            #     if param.grad is None:
+            #         print(name, " grad is bad")
+            #     else:
+            #         print(name, " grad is good")
+            #         print(param.grad)
+
             optimizer.step()
 
             epoch_loss.append(loss.data[0])
@@ -310,27 +350,34 @@ def train(args, model, enc=False):
                     step_vis_no = step
                 else:
                     step_vis_no = total_steps_train + len(epoch_loss)
+
+                # Figure out and compute tensor to visualize. 
+                if args.force_n_classes > 0:
+                    if (isinstance(output_prob, list)):
+                        vis_output = getMaxProbValue(output_prob[0][0].cpu().data, output_power[0][0].cpu().data)
+                        writer.add_image("train/classes", color_transform_classes(output_prob[0][0].cpu().data), step_vis_no)
+                    else:
+                        vis_output = getMaxProbValue(output_prob[0].cpu().data, output_power[0].cpu().data)
+                        writer.add_image("train/classes", color_transform_classes(output_prob[0].cpu().data), step_vis_no)
+                else:
+                    if (isinstance(output, list)):
+                        vis_output = output[0][0].cpu().data
+                    else:
+                        vis_output = output[0].cpu().data
+
                 start_time_plot = time.time()
                 image = inputs[0].cpu().data
                 # board.image(image, f'input (epoch: {epoch}, step: {step})')
                 writer.add_image("train/input", image, step_vis_no)
-                if isinstance(output_prob, list):   #merge gpu tensors
-                    # board.image(color_transform_output(outputs[0][0].cpu().data),
-                    # f'output (epoch: {epoch}, step: {step})')
-                    writer.add_image("train/output", color_transform_output(output_prob[0][0].cpu().data, output_power[0][0].cpu().data), step_vis_no)
-                    writer.add_image("train/classes", color_transform_classes(output_prob[0][0].cpu().data), step_vis_no)
-                else:
-                    # board.image(color_transform_output(outputs[0].cpu().data),
-                    # f'output (epoch: {epoch}, step: {step})')
-                    writer.add_image("train/output", color_transform_output(output_prob[0].cpu().data, output_power[0].cpu().data), step_vis_no)
-                    writer.add_image("train/classes", color_transform_classes(output_prob[0].cpu().data), step_vis_no)
+
+                writer.add_image("train/output", color_transform_output(vis_output), step_vis_no)
                 # board.image(color_transform_target(targets[0].cpu().data),
                 #     f'target (epoch: {epoch}, step: {step})')
                 writer.add_image("train/target", color_transform_target(targets[0].cpu().data), step_vis_no)
                 print ("Time to paint images: ", time.time() - start_time_plot)
             if args.steps_loss > 0 and step % args.steps_loss == 0:
                 len_epoch_loss = len(epoch_loss)
-                average_loss_train = (average_loss_train * total_steps_train + sum(epoch_loss)) / (total_steps_train + len_epoch_loss)
+                average_loss_train = (average_loss_train * step + sum(epoch_loss)) / (step + len_epoch_loss)
                 for ind, val in enumerate(epoch_loss):
                     writer.add_scalar("train/instant_loss", val, total_steps_train + ind)
                 total_steps_train += len_epoch_loss
@@ -338,9 +385,10 @@ def train(args, model, enc=False):
                 # Clear loss for next loss print iteration.
                 # Output class power costs
                 power_dict = {}
-                for ind, val in enumerate(output_power.squeeze()):
-                    power_dict[str(ind)] = val
-                writer.add_scalars("params/class_cost", power_dict, total_steps_train)
+                if args.force_n_classes > 0:
+                    for ind, val in enumerate(output_power.squeeze()):
+                        power_dict[str(ind)] = val
+                    writer.add_scalars("params/class_cost", power_dict, total_steps_train)
                 epoch_loss = []
                 # Print current loss. 
                 print(f'loss: {average_loss_train:0.4} (epoch: {epoch}, step: {step})', 
@@ -361,8 +409,6 @@ def train(args, model, enc=False):
         epoch_loss_val = []
         time_val = []
 
-        if (doIouVal):
-            iouEvalVal = iouEval(NUM_CLASSES)
 
         for step, (images, labels) in enumerate(loader_val):
             start_time = time.time()
@@ -372,9 +418,14 @@ def train(args, model, enc=False):
 
             inputs = Variable(images, volatile=True)    #volatile flag makes it free backward or outputs for eval
             targets = Variable(labels, volatile=True)
-            output_prob, output_power = model(inputs, only_encode=enc) 
 
-            loss = criterion(output_prob, output_power, targets)
+            if args.force_n_classes:
+                output_prob, output_power = model(inputs, only_encode=enc) 
+                output = getMaxProbValue(output_prob, output_power)
+            else:
+                output = model(inputs, only_encode=enc)
+
+            loss = criterion_val(output, targets)
             epoch_loss_val.append(loss.data[0])
             time_val.append(time.time() - start_time)
 
@@ -394,31 +445,31 @@ def train(args, model, enc=False):
                 image = inputs[0].cpu().data
                 # board.image(image, f'VAL input (epoch: {epoch}, step: {step})')
                 writer.add_image("val/input", image, step_vis_no)
-                if isinstance(output_prob, list):   #merge gpu tensors
+                if isinstance(output, list):   #merge gpu tensors
                     # board.image(color_transform_output(outputs[0][0].cpu().data),
                     # f'VAL output (epoch: {epoch}, step: {step})')
-                    writer.add_image("val/output", color_transform_output(output_prob[0][0].cpu().data, output_power[0][0].cpu().data), step_vis_no)
-                    writer.add_image("val/classes", color_transform_classes(output_prob[0][0].cpu().data), step_vis_no)
+                    writer.add_image("val/output", color_transform_output(output[0][0].cpu().data), step_vis_no)
+                    if args.force_n_classes > 0:
+                        writer.add_image("val/classes", color_transform_classes(output_prob[0][0].cpu().data), step_vis_no)
                 else:
                     # board.image(color_transform_output(outputs[0].cpu().data),
                     # f'VAL output (epoch: {epoch}, step: {step})')
-                    writer.add_image("val/output", color_transform_output(output_prob[0].cpu().data, output_power[0].cpu().data), step_vis_no)
-                    writer.add_image("val/classes", color_transform_classes(output_prob[0].cpu().data), step_vis_no)
+                    writer.add_image("val/output", color_transform_output(output[0].cpu().data), step_vis_no)
+                    if args.force_n_classes > 0:
+                        writer.add_image("val/classes", color_transform_classes(output_prob[0].cpu().data), step_vis_no)
                 # board.image(color_transform_target(targets[0].cpu().data),
                 #     f'VAL target (epoch: {epoch}, step: {step})')
                 writer.add_image("val/target", color_transform_target(targets[0].cpu().data), step_vis_no)
                 print ("Time to paint images: ", time.time() - start_time_plot)
             if args.steps_loss > 0 and step % args.steps_loss == 0:
                 len_epoch_loss_val = len(epoch_loss_val)
-                average_loss_val = (average_loss_val * total_steps_val + sum(epoch_loss_val)) / (total_steps_val + len_epoch_loss_val)
-                for ind, val in enumerate(epoch_loss_val):
-                    writer.add_scalar("val/instant_loss", val, total_steps_val + ind)
+                average_loss_val = (average_loss_val * step + sum(epoch_loss_val)) / (step + len_epoch_loss_val)
                 total_steps_val += len_epoch_loss_val
-                writer.add_scalar("val/average_loss", average_loss_val, total_steps_val)
                 epoch_loss_val = []
-                print(f'VAL loss: {average_loss_val:0.4} (epoch: {epoch}, step: {step})', 
-                        "// Avg time/img: %.4f s" % (sum(time_val) / len(time_val) / args.batch_size))
                        
+        print(f'VAL loss: {average_loss_val:0.4} (epoch: {epoch}, step: {total_steps_val})', 
+                "// Avg time/img: %.4f s" % (sum(time_val) / len(time_val) / args.batch_size))
+        writer.add_scalar("val/average_loss", average_loss_val, total_steps_val)
 
         average_epoch_loss_val = sum(epoch_loss_val) / len(epoch_loss_val)
         #scheduler.step(average_epoch_loss_val, epoch)  ## scheduler 1   # update lr if needed
@@ -497,7 +548,7 @@ def main(args):
     #Load Model
     assert os.path.exists(args.model + ".py"), "Error: model definition not found"
     model_file = importlib.import_module(args.model)
-    model = model_file.Net(NUM_CLASSES, softmax_classes=NUM_SOFTMAX, spread_class_power=args.spread_init, fix_class_power=args.fix_class_power)
+    model = model_file.Net(softmax_classes=args.force_n_classes, spread_class_power=args.spread_init, fix_class_power=args.fix_class_power)
     copyfile(args.model + ".py", savedir + '/' + args.model + ".py")
     
     if args.cuda:
@@ -570,7 +621,7 @@ def main(args):
                 pretrainedEnc = pretrainedEnc.cpu()     #because loaded encoder is probably saved in cuda
         else:
             pretrainedEnc = next(model.children()).encoder
-        model = model_file.Net(NUM_CLASSES, encoder=pretrainedEnc, softmax_classes=NUM_SOFTMAX, spread_class_power=args.spread_init, fix_class_power=args.fix_class_power)  #Add decoder to encoder
+        model = model_file.Net( encoder=pretrainedEnc, softmax_classes=args.force_n_classes, spread_class_power=args.spread_init, fix_class_power=args.fix_class_power)  #Add decoder to encoder
         if args.cuda:
             model = torch.nn.DataParallel(model).cuda()
         #When loading encoder reinitialize weights for decoder because they are set to 0 when training dec
@@ -597,6 +648,7 @@ if __name__ == '__main__':
     parser.add_argument('--pretrainedEncoder') #, default="../trained_models/erfnet_encoder_pretrained.pth.tar")
     parser.add_argument('--pretrained') #, default="../trained_models/erfnet_encoder_pretrained.pth.tar")
     parser.add_argument('--visualize', action='store_true')
+    parser.add_argument('--force-n-classes', type=int, default=0)   # Force network to discretize output into classes with discrete output power
     parser.add_argument('--split-epoch-vis', action='store_true', default=False)    # Split tensorboard output by epoch
     parser.add_argument('--spread-init', action='store_true', default=False)    # Spread initial class power over interval [0.7,...,2.0]
     parser.add_argument('--fix-class-power', action='store_true', default=False)    # Fix class power so that it is not optimized

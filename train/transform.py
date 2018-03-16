@@ -156,15 +156,25 @@ class Colorize:
 
 
 
+# tensor is assumed to be shape [C x 1]
+# prob should be shape [..., C x H x W]
+def getMaxProbValue(prob, tensor):
+    channel_dim = prob.dim() - 3
+    max_prob, max_ind = prob.max(dim=channel_dim, keepdim=True)
+    return (tensor.expand(prob.size())).gather(channel_dim, max_ind)
+
+
+
+
 class ColorizeWithProb:
 
     def __init__(self, min_val = 0.0, max_val = 1.0, remove_negative = False, extend=False, white_val=1.0):
         self.func = Colorize(min_val, max_val, remove_negative, extend, white_val)
 
     def __call__(self, prob, power):
-        max_prob, max_ind = prob.max(dim=0, keepdim=True)
+        return self.func(getMaxProbValue(prob, power))
 
-        return self.func((power.expand(prob.size())).gather(0, max_ind))
+
 
 
 class ColorizeClasses:
