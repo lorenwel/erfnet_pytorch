@@ -35,7 +35,7 @@ from shutil import copyfile
 
 NUM_CHANNELS = 3
 # NUM_CLASSES = 20 #pascal=22, cityscapes=20
-NUM_SOFTMAX = 20
+NUM_HISTOGRAMS = 5
 
 color_transform_target = Colorize(1.0, 2.0, remove_negative=True, extend=True, white_val=1.0)  # min_val, max_val, remove negative
 color_transform_output = Colorize(1.0, 2.0, remove_negative=False, extend=True, white_val=1.0)  # Automatic color based on tensor min/max val
@@ -270,6 +270,9 @@ def train(args, model, enc=False):
         print("Saving tensorboard log to: " + log_base_dir)
         total_steps_train = 0
         total_steps_val = 0
+        # Figure out histogram plot indices.
+        steps_hist = int(len(loader_val)/NUM_HISTOGRAMS)
+        hist_bins = np.arange(-0.5, args.force_n_classes+0.5, 1.0)
 
     for epoch in range(start_epoch, args.num_epochs+1):
         print("----- TRAINING - EPOCH", epoch, "-----")
@@ -353,12 +356,19 @@ def train(args, model, enc=False):
 
                 # Figure out and compute tensor to visualize. 
                 if args.force_n_classes > 0:
+                    # Compute weighted power consumption
+                    sum_dim = output_prob.dim()-3
+                    weighted_sum_output = (output_prob * output_power).sum(dim=sum_dim, keepdim=True)
                     if (isinstance(output_prob, list)):
-                        vis_output = getMaxProbValue(output_prob[0][0].cpu().data, output_power[0][0].cpu().data)
-                        writer.add_image("train/classes", color_transform_classes(output_prob[0][0].cpu().data), step_vis_no)
+                        max_prob, vis_output = getMaxProbValue(output_prob[0][0].cpu().data, output_power[0][0].cpu().data)
+                        writer.add_image("train/2_classes", color_transform_classes(output_prob[0][0].cpu().data), step_vis_no)
+                        writer.add_image("train/3_max_class_probability", max_prob[0][0], step_vis_no)
+                        writer.add_image("train/4_weighted_output", color_transform_output(weighted_sum_output[0][0].cpu().data), step_vis_no)
                     else:
-                        vis_output = getMaxProbValue(output_prob[0].cpu().data, output_power[0].cpu().data)
-                        writer.add_image("train/classes", color_transform_classes(output_prob[0].cpu().data), step_vis_no)
+                        max_prob, vis_output = getMaxProbValue(output_prob[0].cpu().data, output_power[0].cpu().data)
+                        writer.add_image("train/2_classes", color_transform_classes(output_prob[0].cpu().data), step_vis_no)
+                        writer.add_image("train/3_max_class_probability", max_prob[0], step_vis_no)
+                        writer.add_image("train/4_weighted_output", color_transform_output(weighted_sum_output[0].cpu().data), step_vis_no)
                 else:
                     if (isinstance(output, list)):
                         vis_output = output[0][0].cpu().data
@@ -368,12 +378,11 @@ def train(args, model, enc=False):
                 start_time_plot = time.time()
                 image = inputs[0].cpu().data
                 # board.image(image, f'input (epoch: {epoch}, step: {step})')
-                writer.add_image("train/input", image, step_vis_no)
-
-                writer.add_image("train/output", color_transform_output(vis_output), step_vis_no)
+                writer.add_image("train/1_input", image, step_vis_no)
+                writer.add_image("train/5_output", color_transform_output(vis_output), step_vis_no)
                 # board.image(color_transform_target(targets[0].cpu().data),
                 #     f'target (epoch: {epoch}, step: {step})')
-                writer.add_image("train/target", color_transform_target(targets[0].cpu().data), step_vis_no)
+                writer.add_image("train/6_target", color_transform_target(targets[0].cpu().data), step_vis_no)
                 print ("Time to paint images: ", time.time() - start_time_plot)
             if args.steps_loss > 0 and step % args.steps_loss == 0:
                 len_epoch_loss = len(epoch_loss)
@@ -421,7 +430,10 @@ def train(args, model, enc=False):
 
             if args.force_n_classes:
                 output_prob, output_power = model(inputs, only_encode=enc) 
-                output = getMaxProbValue(output_prob, output_power)
+                max_prob, output = getMaxProbValue(output_prob, output_power)
+                # Compute weighted power consumption
+                sum_dim = output_prob.dim()-3
+                weighted_sum_output = (output_prob * output_power).sum(dim=sum_dim, keepdim=True)
             else:
                 output = model(inputs, only_encode=enc)
 
@@ -436,6 +448,7 @@ def train(args, model, enc=False):
             #     iouEvalVal.addBatch(outputs.max(1)[1].unsqueeze(1).data, targets.data)
             #     #print ("Time to add confusion matrix: ", time.time() - start_time_iou)
 
+            # Plot images
             if args.visualize and args.steps_plot > 0 and step % args.steps_plot == 0:
                 if args.split_epoch_vis:
                     step_vis_no = step
@@ -444,23 +457,39 @@ def train(args, model, enc=False):
                 start_time_plot = time.time()
                 image = inputs[0].cpu().data
                 # board.image(image, f'VAL input (epoch: {epoch}, step: {step})')
-                writer.add_image("val/input", image, step_vis_no)
+                writer.add_image("val/1_input", image, step_vis_no)
                 if isinstance(output, list):   #merge gpu tensors
                     # board.image(color_transform_output(outputs[0][0].cpu().data),
                     # f'VAL output (epoch: {epoch}, step: {step})')
-                    writer.add_image("val/output", color_transform_output(output[0][0].cpu().data), step_vis_no)
+                    writer.add_image("val/5_output", color_transform_output(output[0][0].cpu().data), step_vis_no)
                     if args.force_n_classes > 0:
-                        writer.add_image("val/classes", color_transform_classes(output_prob[0][0].cpu().data), step_vis_no)
+                        writer.add_image("val/2_classes", color_transform_classes(output_prob[0][0].cpu().data), step_vis_no)
+                        writer.add_image("val/3_max_class_probability", max_prob[0][0], step_vis_no)
+                        writer.add_image("val/4_weighted_output", color_transform_output(weighted_sum_output[0][0].cpu().data), step_vis_no)
+
                 else:
                     # board.image(color_transform_output(outputs[0].cpu().data),
                     # f'VAL output (epoch: {epoch}, step: {step})')
-                    writer.add_image("val/output", color_transform_output(output[0].cpu().data), step_vis_no)
+                    writer.add_image("val/5_output", color_transform_output(output[0].cpu().data), step_vis_no)
                     if args.force_n_classes > 0:
-                        writer.add_image("val/classes", color_transform_classes(output_prob[0].cpu().data), step_vis_no)
+                        writer.add_image("val/2_classes", color_transform_classes(output_prob[0].cpu().data), step_vis_no)
+                        writer.add_image("val/3_max_class_probability", max_prob[0], step_vis_no)
+                        writer.add_image("val/4_weighted_output", color_transform_output(weighted_sum_output[0].cpu().data), step_vis_no)
                 # board.image(color_transform_target(targets[0].cpu().data),
                 #     f'VAL target (epoch: {epoch}, step: {step})')
-                writer.add_image("val/target", color_transform_target(targets[0].cpu().data), step_vis_no)
+                writer.add_image("val/6_target", color_transform_target(targets[0].cpu().data), step_vis_no)
                 print ("Time to paint images: ", time.time() - start_time_plot)
+            # Plot histograms
+            if args.force_n_classes > 0 and args.visualize and steps_hist > 0 and step % steps_hist == 0:
+                hist_ind = int(step / steps_hist)
+                if (isinstance(output_prob, list)):
+                    _, hist_array = output_prob[0][0].cpu().data.max(dim=0, keepdim=True)
+                else:
+                    _, hist_array = output_prob[0].cpu().data.max(dim=0, keepdim=True)
+
+                writer.add_histogram("val/hist_"+str(hist_ind), hist_array.numpy().flatten(), total_steps_train, hist_bins)  # Use train steps so we can compare with class power plot
+                writer.add_image("val/hist/input_"+str(hist_ind), image, total_steps_train)  # Visualize image again to check if we keep the same
+            # Compute loss
             if args.steps_loss > 0 and step % args.steps_loss == 0:
                 len_epoch_loss_val = len(epoch_loss_val)
                 average_loss_val = (average_loss_val * step + sum(epoch_loss_val)) / (step + len_epoch_loss_val)
