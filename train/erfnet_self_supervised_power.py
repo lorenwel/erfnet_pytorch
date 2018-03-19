@@ -110,12 +110,13 @@ class UpsamplerBlock (nn.Module):
         return F.relu(output)
 
 class SoftMaxConv (nn.Module):
-    def __init__(self, softmax_classes):
+    def __init__(self, softmax_classes, late_dropout_prob):
         super().__init__()
 
         print("Added intermediate softmax layer with ", softmax_classes, " classes")
         self.convolution = nn.ConvTranspose2d( 16, softmax_classes, 2, stride=2, padding=0, output_padding=0, bias=True)
-        self.dropout = torch.nn.Dropout2d(p=1.0/softmax_classes)
+        print("Set late dropout prob to ", late_dropout_prob)
+        self.dropout = torch.nn.Dropout2d(p=late_dropout_prob)
 
     def forward(self, input):
         output = self.convolution(input)
@@ -125,7 +126,7 @@ class SoftMaxConv (nn.Module):
         return output
 
 class Decoder (nn.Module):
-    def __init__(self, softmax_classes):
+    def __init__(self, softmax_classes, late_dropout_prob):
         super().__init__()
 
         self.layers = nn.ModuleList()
@@ -139,7 +140,7 @@ class Decoder (nn.Module):
         self.layers.append(non_bottleneck_1d(16, 0, 1))
 
         if softmax_classes > 0:
-            self.output_conv = SoftMaxConv(softmax_classes)
+            self.output_conv = SoftMaxConv(softmax_classes, late_dropout_prob)
         else:
             self.output_conv = nn.ConvTranspose2d( 16, 1, 2, stride=2, padding=0, output_padding=0, bias=True)
 
@@ -156,7 +157,11 @@ class Decoder (nn.Module):
 
 #ERFNet
 class Net(nn.Module):
-    def __init__(self, encoder=None, softmax_classes=0, spread_class_power=False, fix_class_power=False):  #use encoder to pass pretrained encoder
+    def __init__(self, encoder=None, 
+                       softmax_classes=0, 
+                       spread_class_power=False, 
+                       fix_class_power=False, 
+                       late_dropout_prob=0.3):  #use encoder to pass pretrained encoder
         super().__init__()
 
         self.softmax_classes = softmax_classes
@@ -183,7 +188,7 @@ class Net(nn.Module):
             self.encoder = Encoder()
         else:
             self.encoder = encoder
-        self.decoder = Decoder(softmax_classes)
+        self.decoder = Decoder(softmax_classes, late_dropout_prob)
 
     def forward(self, input, only_encode=False):
         if only_encode:
