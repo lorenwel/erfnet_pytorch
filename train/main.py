@@ -488,7 +488,8 @@ def train(args, model, enc=False):
                     _, hist_array = output_prob[0].cpu().data.max(dim=0, keepdim=True)
 
                 writer.add_histogram("val/hist_"+str(hist_ind), hist_array.numpy().flatten(), total_steps_train, hist_bins)  # Use train steps so we can compare with class power plot
-                writer.add_image("val/hist/input_"+str(hist_ind), image, total_steps_train)  # Visualize image again to check if we keep the same
+                if epoch == start_epoch:
+                    writer.add_image("val/hist/input_"+str(hist_ind), image)  # Visualize image used to compute histogram
             # Compute loss
             if args.steps_loss > 0 and step % args.steps_loss == 0:
                 len_epoch_loss_val = len(epoch_loss_val)
