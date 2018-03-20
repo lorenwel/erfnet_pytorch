@@ -36,6 +36,11 @@ from shutil import copyfile
 NUM_CHANNELS = 3
 # NUM_CLASSES = 20 #pascal=22, cityscapes=20
 NUM_HISTOGRAMS = 5
+# Optimizer params.
+LEARNING_RATE=5e-4
+BETAS=(0.9, 0.999)
+OPT_EPS=1e-08
+WEIGHT_DECAY=1e-6
 
 color_transform_target = Colorize(1.0, 2.0, remove_negative=True, extend=True, white_val=1.0)  # min_val, max_val, remove negative
 color_transform_output = Colorize(1.0, 2.0, remove_negative=False, extend=True, white_val=1.0)  # Automatic color based on tensor min/max val
@@ -232,7 +237,12 @@ def train(args, model, enc=False):
     #TODO: reduce memory in first gpu: https://discuss.pytorch.org/t/multi-gpu-training-memory-usage-in-balance/4163/4        #https://github.com/pytorch/pytorch/issues/1893
 
     #optimizer = Adam(model.parameters(), 5e-4, (0.9, 0.999),  eps=1e-08, weight_decay=2e-4)     ## scheduler 1
-    optimizer = Adam(model.parameters(), 5e-4, (0.9, 0.999),  eps=1e-08, weight_decay=1e-6)      ## scheduler 2
+    optimizer = Adam(model.parameters(), LEARNING_RATE, BETAS,  eps=OPT_EPS, weight_decay=WEIGHT_DECAY)
+    if args.alternate_optimization:
+        params_prob = [param for name, param in model.named_parameters() if name != "module.class_power"]
+        params_power  = [param for name, param in model.named_parameters() if name == "module.class_power"]
+        optimizer_prob = Adam(params_prob, LEARNING_RATE, BETAS,  eps=OPT_EPS, weight_decay=WEIGHT_DECAY)
+        optimizer_power = Adam(params_power, LEARNING_RATE, BETAS,  eps=OPT_EPS, weight_decay=WEIGHT_DECAY)
 
     start_epoch = 1
 
@@ -262,6 +272,9 @@ def train(args, model, enc=False):
     #scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5) # set up scheduler     ## scheduler 1
     lambda1 = lambda epoch: pow((1-((epoch-1)/args.num_epochs)),0.9)  ## scheduler 2
     scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda1)                             ## scheduler 2
+    if args.alternate_optimization:
+        scheduler_prob = lr_scheduler.LambdaLR(optimizer_prob, lr_lambda=lambda1)                             ## scheduler 2
+        scheduler_power = lr_scheduler.LambdaLR(optimizer_power, lr_lambda=lambda1)                             ## scheduler 2
 
     if args.visualize and args.steps_plot > 0:
         board = Dashboard(args.port)
@@ -277,7 +290,13 @@ def train(args, model, enc=False):
     for epoch in range(start_epoch, args.num_epochs+1):
         print("----- TRAINING - EPOCH", epoch, "-----")
 
-        scheduler.step(epoch)    ## scheduler 2
+        if args.alternate_optimization:
+            if epoch % 2 == 0:
+                scheduler_power.step(epoch)
+            else:
+                scheduler_prob.step(epoch)
+        else:
+            scheduler.step(epoch)    ## scheduler 2
 
         # Create new run in summary writer. 
         if args.split_epoch_vis:
@@ -317,7 +336,13 @@ def train(args, model, enc=False):
             if (args.force_n_classes) > 0:
                 # Forced into discrete classes. 
                 output_prob, output_power = model(inputs, only_encode=enc)
-                optimizer.zero_grad()
+                if args.alternate_optimization:
+                    if epoch % 2 == 0:
+                        optimizer_power.zero_grad()
+                    else:
+                        optimizer_prob.zero_grad()
+                else:
+                    optimizer.zero_grad()
                 loss = criterion(output_prob, output_power, targets)
             else:
                 # Straight regressoin
@@ -337,7 +362,13 @@ def train(args, model, enc=False):
             #         print(name, " grad is good")
             #         print(param.grad)
 
-            optimizer.step()
+            if args.alternate_optimization:
+                if epoch % 2 == 0:
+                    optimizer_power.step()
+                else:
+                    optimizer_prob.step()
+            else:
+                optimizer.step()
 
             epoch_loss.append(loss.data[0])
             time_train.append(time.time() - start_time)
@@ -683,6 +714,7 @@ if __name__ == '__main__':
     parser.add_argument('--spread-init', action='store_true', default=False)    # Spread initial class power over interval [0.7,...,2.0]
     parser.add_argument('--fix-class-power', action='store_true', default=False)    # Fix class power so that it is not optimized
     parser.add_argument('--late-dropout-prob', type=float, default=0.3)    # Specify dropout prob in last layer after softmax
+    parser.add_argument('--alternate-optimization', action='store_true', default=False) # Alternate optimizing class segmentation and class score every epoch
 
     parser.add_argument('--iouTrain', action='store_true', default=False) #recommended: False (takes more time to train otherwise)
     parser.add_argument('--iouVal', action='store_true', default=False)  
