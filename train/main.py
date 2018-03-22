@@ -93,19 +93,19 @@ class MyCoTransform(object):
                 target = target.transpose(Image.FLIP_LEFT_RIGHT)
             
             #Random translation 0-2 pixels (fill rest with padding
-            transX = random.randint(-2, 2) 
-            transY = random.randint(-2, 2)
+            # transX = random.randint(-2, 2) 
+            # transY = random.randint(-2, 2)
 
-            input = ImageOps.expand(input, border=(transX,transY,0,0), fill=0)
-            target = ImageOps.expand(target, border=(transX,transY,0,0), fill= -1.0) #pad label filling with -1
-            input = input.crop((0, 0, input.size[0]-transX, input.size[1]-transY))
-            target = target.crop((0, 0, target.size[0]-transX, target.size[1]-transY))   
+            # input = ImageOps.expand(input, border=(transX,transY,0,0), fill=0)
+            # target = ImageOps.expand(target, border=(transX,transY,0,0), fill= -1.0) #pad label filling with -1
+            # input = input.crop((0, 0, input.size[0]-transX, input.size[1]-transY))
+            # target = target.crop((0, 0, target.size[0]-transX, target.size[1]-transY))   
 
             # Random crop while preserving aspect ratio and divisibility by 8
             while True:
-                crop_val = np.random.randint(6)
+                crop_val = np.random.randint(2)
                 # Assumes base image is 480x640
-                img_size = np.array([32, 24]) * (20-crop_val)
+                img_size = np.array([128, 96]) * (5-crop_val)
                 hor_pos = int(np.random.rand() * (640 - img_size[0]))
                 input_crop = input.crop((hor_pos, 480 - img_size[1], hor_pos + img_size[0], 480))
                 # input.show()
