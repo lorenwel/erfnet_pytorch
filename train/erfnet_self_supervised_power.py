@@ -126,7 +126,7 @@ class SoftMaxConv (nn.Module):
         return output
 
 class Decoder (nn.Module):
-    def __init__(self, softmax_classes, late_dropout_prob):
+    def __init__(self):
         super().__init__()
 
         self.layers = nn.ModuleList()
@@ -139,19 +139,12 @@ class Decoder (nn.Module):
         self.layers.append(non_bottleneck_1d(16, 0, 1))
         self.layers.append(non_bottleneck_1d(16, 0, 1))
 
-        if softmax_classes > 0:
-            self.output_conv = SoftMaxConv(softmax_classes, late_dropout_prob)
-        else:
-            self.output_conv = nn.ConvTranspose2d( 16, 1, 2, stride=2, padding=0, output_padding=0, bias=True)
-
 
     def forward(self, input):
         output = input
 
         for layer in self.layers:
             output = layer(output)
-
-        output = self.output_conv(output)
 
         return output
 
@@ -161,10 +154,14 @@ class Net(nn.Module):
                        softmax_classes=0, 
                        spread_class_power=False, 
                        fix_class_power=False, 
-                       late_dropout_prob=0.3):  #use encoder to pass pretrained encoder
+                       late_dropout_prob=0.3, 
+                       share_decoder=False):  #use encoder to pass pretrained encoder
         super().__init__()
 
+######### INIITALIZE EVERYTHING FOR INDIVIDUAL CLASS POWER #############
+
         self.softmax_classes = softmax_classes
+        self.share_decoder = share_decoder
 
         # Initialize class power consumption only when we have discretized into classes. 
         if softmax_classes > 0:
@@ -183,20 +180,46 @@ class Net(nn.Module):
             else:
                 self.class_power = torch.nn.Parameter(init_tensor)
 
-
+######### INIITALIZE THE NETWORK MODULES #############
+        # Encoder
         if (encoder == None):
             self.encoder = Encoder()
         else:
             self.encoder = encoder
-        self.decoder = Decoder(softmax_classes, late_dropout_prob)
+        # Decoder
+        if self.share_decoder:
+            print("Image reproduction and power prediction share decoder")
+            self.decoder_img = Decoder()
+            self.decoder_pow = self.decoder_img
+        else:
+            print("Image reproduction and power prediction use separate decoder")
+            self.decoder_img = Decoder()
+            self.decoder_pow = Decoder()
+        # Output module
+        self.output_module_img = nn.ConvTranspose2d( 16, 3, 2, stride=2, padding=0, output_padding=0, bias=True)
+        if softmax_classes > 0:
+            self.output_module_pow = SoftMaxConv(softmax_classes, late_dropout_prob)
+        else:
+            self.output_module_pow = nn.ConvTranspose2d( 16, 1, 2, stride=2, padding=0, output_padding=0, bias=True)
 
     def forward(self, input, only_encode=False):
         if only_encode:
             return self.encoder.forward(input, predict=True)
         else:
+            # Encoder
             output = self.encoder(input)    #predict=False by default
-            output = self.decoder.forward(output)
-            if self.softmax_classes > 0:
-                return output, self.class_power
+            # Decoder
+            if self.share_decoder:
+                output_img = self.decoder_img.forward(output)   
+                output_pow = output_img
             else:
-                return output
+                output_img = self.decoder_img.forward(output) 
+                output_pow = self.decoder_pow.forward(output) 
+            # Output modules
+            output_img = self.output_module_img.forward(output_img)
+            output_pow = self.output_module_pow.forward(output_pow)
+            # Return
+            if self.softmax_classes > 0:
+                return output_img, output_pow, self.class_power
+            else:
+                return output_img, output_pow
