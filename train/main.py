@@ -93,13 +93,13 @@ class MyCoTransform(object):
                 target = target.transpose(Image.FLIP_LEFT_RIGHT)
             
             #Random translation 0-2 pixels (fill rest with padding
-            # transX = random.randint(-2, 2) 
-            # transY = random.randint(-2, 2)
+            transX = random.randint(-2, 2) 
+            transY = random.randint(-2, 2)
 
-            # input = ImageOps.expand(input, border=(transX,transY,0,0), fill=0)
-            # target = ImageOps.expand(target, border=(transX,transY,0,0), fill= -1.0) #pad label filling with -1
-            # input = input.crop((0, 0, input.size[0]-transX, input.size[1]-transY))
-            # target = target.crop((0, 0, target.size[0]-transX, target.size[1]-transY))   
+            input = ImageOps.expand(input, border=(transX,transY,0,0), fill=0)
+            target = ImageOps.expand(target, border=(transX,transY,0,0), fill= -1.0) #pad label filling with -1
+            input = input.crop((0, 0, input.size[0]-transX, input.size[1]-transY))
+            target = target.crop((0, 0, target.size[0]-transX, target.size[1]-transY))   
 
             # Random crop while preserving aspect ratio and divisibility by 8
             while True:
@@ -179,8 +179,8 @@ class L1LossMasked(torch.nn.Module):
 
         self.loss = torch.nn.L1Loss(False, False)
 
-    def forward(self, outputs, targets):
-        return self.loss(outputs, targets).masked_select(torch.gt(targets, 0.0)).mean()
+    def forward(self, outputs, targets, mask):
+        return self.loss(outputs, targets).masked_select(mask).mean()
 
 
 best_acc = 0
@@ -210,12 +210,13 @@ def train(args, model, enc=False):
 
     # Set Loss functions
     if args.force_n_classes > 0:
-        criterion = L1LossClassProbMasked() # L1 loss weighted with class prob with averaging over mini-batch
+        criterion_pow = L1LossClassProbMasked() # L1 loss weighted with class prob with averaging over mini-batch
     else:
-        criterion = L1LossMasked()     
+        criterion_pow = L1LossMasked()     
 
     criterion_val = L1LossMasked()     # L1 loss with averaging over mini-batch
-    print(type(criterion))
+    criterion_img = L1LossMasked()
+    print(type(criterion_pow))
 
     savedir = f'../save/{args.savedir}'
 
@@ -303,10 +304,13 @@ def train(args, model, enc=False):
             writer.close()
             writer = SummaryWriter(log_base_dir + "epoch_" + str(epoch))
 
-        average_loss_train = 0
-        average_loss_val = 0
+        average_loss_pow_train = 0
+        average_loss_img_train = 0
+        average_loss_pow_val = 0
+        average_loss_img_val = 0
 
-        epoch_loss = []
+        epoch_loss_pow = []
+        epoch_loss_img = []
         time_train = []
      
         doIouTrain = args.iouTrain   
@@ -335,7 +339,7 @@ def train(args, model, enc=False):
             targets = Variable(labels)
             if (args.force_n_classes) > 0:
                 # Forced into discrete classes. 
-                output_prob, output_power = model(inputs, only_encode=enc)
+                output_img, output_prob, output_power = model(inputs, only_encode=enc)
                 if args.alternate_optimization:
                     if epoch % 2 == 0:
                         optimizer_power.zero_grad()
@@ -343,17 +347,20 @@ def train(args, model, enc=False):
                         optimizer_prob.zero_grad()
                 else:
                     optimizer.zero_grad()
-                loss = criterion(output_prob, output_power, targets)
+                loss_pow = criterion_pow(output_prob, output_power, targets)
             else:
                 # Straight regressoin
-                output = model(inputs, only_encode=enc)
+                output_img, output = model(inputs, only_encode=enc)
                 optimizer.zero_grad()
-                loss = criterion(output, targets)
+                loss_pow = criterion_pow(output, targets, torch.gt(targets, 0.0))
+
+            loss_img = criterion_img(output_img, inputs, torch.le(targets, 0.0))
 
             #print("targets", np.unique(targets[:, 0].cpu().data.numpy()))
 
             # Do backward pass. 
-            loss.backward()
+            loss_pow.backward(retain_graph=True)
+            loss_img.backward()
 
             # for name, param in model.named_parameters():
             #     if param.grad is None:
@@ -370,7 +377,8 @@ def train(args, model, enc=False):
             else:
                 optimizer.step()
 
-            epoch_loss.append(loss.data[0])
+            epoch_loss_pow.append(loss_pow.data[0])
+            epoch_loss_img.append(loss_img.data[0])
             time_train.append(time.time() - start_time)
 
             # if (doIouTrain):
@@ -383,7 +391,7 @@ def train(args, model, enc=False):
                 if args.split_epoch_vis:
                     step_vis_no = step
                 else:
-                    step_vis_no = total_steps_train + len(epoch_loss)
+                    step_vis_no = total_steps_train + len(epoch_loss_pow)
 
                 # Figure out and compute tensor to visualize. 
                 if args.force_n_classes > 0:
@@ -394,34 +402,43 @@ def train(args, model, enc=False):
                         max_prob, vis_output = getMaxProbValue(output_prob[0][0].cpu().data, output_power[0][0].cpu().data)
                         writer.add_image("train/2_classes", color_transform_classes(output_prob[0][0].cpu().data), step_vis_no)
                         writer.add_image("train/3_max_class_probability", max_prob[0][0], step_vis_no)
-                        writer.add_image("train/4_weighted_output", color_transform_output(weighted_sum_output[0][0].cpu().data), step_vis_no)
+                        writer.add_image("train/5_weighted_output", color_transform_output(weighted_sum_output[0][0].cpu().data), step_vis_no)
                     else:
                         max_prob, vis_output = getMaxProbValue(output_prob[0].cpu().data, output_power[0].cpu().data)
                         writer.add_image("train/2_classes", color_transform_classes(output_prob[0].cpu().data), step_vis_no)
                         writer.add_image("train/3_max_class_probability", max_prob[0], step_vis_no)
-                        writer.add_image("train/4_weighted_output", color_transform_output(weighted_sum_output[0].cpu().data), step_vis_no)
+                        writer.add_image("train/5_weighted_output", color_transform_output(weighted_sum_output[0].cpu().data), step_vis_no)
                 else:
                     if (isinstance(output, list)):
                         vis_output = output[0][0].cpu().data
                     else:
                         vis_output = output[0].cpu().data
 
+                if (isinstance(output_img, list)):
+                    writer.add_image("train/4_output_img", output_img[0][0].cpu().data, step_vis_no)
+                else:
+                    writer.add_image("train/4_output_img", output_img[0].cpu().data, step_vis_no)
+
                 start_time_plot = time.time()
                 image = inputs[0].cpu().data
                 # board.image(image, f'input (epoch: {epoch}, step: {step})')
                 writer.add_image("train/1_input", image, step_vis_no)
-                writer.add_image("train/5_output", color_transform_output(vis_output), step_vis_no)
+                writer.add_image("train/6_output_pow", color_transform_output(vis_output), step_vis_no)
                 # board.image(color_transform_target(targets[0].cpu().data),
                 #     f'target (epoch: {epoch}, step: {step})')
-                writer.add_image("train/6_target", color_transform_target(targets[0].cpu().data), step_vis_no)
+                writer.add_image("train/7_target", color_transform_target(targets[0].cpu().data), step_vis_no)
                 print ("Time to paint images: ", time.time() - start_time_plot)
             if args.steps_loss > 0 and step % args.steps_loss == 0:
-                len_epoch_loss = len(epoch_loss)
-                average_loss_train = (average_loss_train * step + sum(epoch_loss)) / (step + len_epoch_loss)
-                for ind, val in enumerate(epoch_loss):
-                    writer.add_scalar("train/instant_loss", val, total_steps_train + ind)
-                total_steps_train += len_epoch_loss
-                writer.add_scalar("train/average_loss", average_loss_train, total_steps_train)
+                len_epoch_loss_pow = len(epoch_loss_pow)
+                average_loss_pow_train = (average_loss_pow_train * step + sum(epoch_loss_pow)) / (step + len_epoch_loss_pow)
+                average_loss_img_train = (average_loss_img_train * step + sum(epoch_loss_img)) / (step + len_epoch_loss_pow)
+                for ind, val in enumerate(epoch_loss_pow):
+                    writer.add_scalar("train/instant_loss_pow", val, total_steps_train + ind)
+                for ind, val in enumerate(epoch_loss_img):
+                    writer.add_scalar("train/instant_loss_img", val, total_steps_train + ind)
+                total_steps_train += len_epoch_loss_pow
+                writer.add_scalar("train/average_loss_pow", average_loss_pow_train, total_steps_train)
+                writer.add_scalar("train/average_loss_img", average_loss_img_train, total_steps_train)
                 # Clear loss for next loss print iteration.
                 # Output class power costs
                 power_dict = {}
@@ -429,13 +446,15 @@ def train(args, model, enc=False):
                     for ind, val in enumerate(output_power.squeeze()):
                         power_dict[str(ind)] = val
                     writer.add_scalars("params/class_cost", power_dict, total_steps_train)
-                epoch_loss = []
+                epoch_loss_pow = []
+                epoch_loss_img = []
                 # Print current loss. 
-                print(f'loss: {average_loss_train:0.4} (epoch: {epoch}, step: {step})', 
+                print(f'loss: {average_loss_pow_train:0.4} (epoch: {epoch}, step: {step})', 
                         "// Avg time/img: %.4f s" % (sum(time_train) / len(time_train) / args.batch_size))
 
             
-        average_epoch_loss_train = sum(epoch_loss) / len(epoch_loss)
+        average_epoch_loss_pow_train = sum(epoch_loss_pow) / len(epoch_loss_pow)
+        average_epoch_loss_img_train = sum(epoch_loss_img) / len(epoch_loss_img)
         
         iouTrain = 0
         if (doIouTrain):
@@ -446,7 +465,8 @@ def train(args, model, enc=False):
         #Validate on 500 val images after each epoch of training
         print("----- VALIDATING - EPOCH", epoch, "-----")
         model.eval()
-        epoch_loss_val = []
+        epoch_loss_pow_val = []
+        epoch_loss_img_val = []
         time_val = []
 
 
@@ -460,16 +480,18 @@ def train(args, model, enc=False):
             targets = Variable(labels, volatile=True)
 
             if args.force_n_classes:
-                output_prob, output_power = model(inputs, only_encode=enc) 
+                output_img, output_prob, output_power = model(inputs, only_encode=enc) 
                 max_prob, output = getMaxProbValue(output_prob, output_power)
                 # Compute weighted power consumption
                 sum_dim = output_prob.dim()-3
                 weighted_sum_output = (output_prob * output_power).sum(dim=sum_dim, keepdim=True)
             else:
-                output = model(inputs, only_encode=enc)
+                output_img, output = model(inputs, only_encode=enc)
 
-            loss = criterion_val(output, targets)
-            epoch_loss_val.append(loss.data[0])
+            loss_pow = criterion_val(output, targets, torch.gt(targets, 0.0))
+            loss_img = criterion_img(output_img, inputs, torch.le(targets, 0.0))
+            epoch_loss_pow_val.append(loss_pow.data[0])
+            epoch_loss_img_val.append(loss_img.data[0])
             time_val.append(time.time() - start_time)
 
 
@@ -484,7 +506,7 @@ def train(args, model, enc=False):
                 if args.split_epoch_vis:
                     step_vis_no = step
                 else:
-                    step_vis_no = total_steps_val + len(epoch_loss_val)
+                    step_vis_no = total_steps_val + len(epoch_loss_pow_val)
                 start_time_plot = time.time()
                 image = inputs[0].cpu().data
                 # board.image(image, f'VAL input (epoch: {epoch}, step: {step})')
@@ -493,6 +515,7 @@ def train(args, model, enc=False):
                     # board.image(color_transform_output(outputs[0][0].cpu().data),
                     # f'VAL output (epoch: {epoch}, step: {step})')
                     writer.add_image("val/5_output", color_transform_output(output[0][0].cpu().data), step_vis_no)
+                    writer.add_image("val/4_output_img", output_img[0][0].cpu().data, step_vis_no)
                     if args.force_n_classes > 0:
                         writer.add_image("val/2_classes", color_transform_classes(output_prob[0][0].cpu().data), step_vis_no)
                         writer.add_image("val/3_max_class_probability", max_prob[0][0], step_vis_no)
@@ -502,6 +525,7 @@ def train(args, model, enc=False):
                     # board.image(color_transform_output(outputs[0].cpu().data),
                     # f'VAL output (epoch: {epoch}, step: {step})')
                     writer.add_image("val/5_output", color_transform_output(output[0].cpu().data), step_vis_no)
+                    writer.add_image("val/4_output_img", output_img[0].cpu().data, step_vis_no)
                     if args.force_n_classes > 0:
                         writer.add_image("val/2_classes", color_transform_classes(output_prob[0].cpu().data), step_vis_no)
                         writer.add_image("val/3_max_class_probability", max_prob[0], step_vis_no)
@@ -523,16 +547,21 @@ def train(args, model, enc=False):
                     writer.add_image("val/hist/input_"+str(hist_ind), image)  # Visualize image used to compute histogram
             # Compute loss
             if args.steps_loss > 0 and step % args.steps_loss == 0:
-                len_epoch_loss_val = len(epoch_loss_val)
-                average_loss_val = (average_loss_val * step + sum(epoch_loss_val)) / (step + len_epoch_loss_val)
-                total_steps_val += len_epoch_loss_val
-                epoch_loss_val = []
+                len_epoch_loss_pow_val = len(epoch_loss_pow_val)
+                len_epoch_loss_img_val = len(epoch_loss_img_val)
+                average_loss_pow_val = (average_loss_pow_val * step + sum(epoch_loss_pow_val)) / (step + len_epoch_loss_pow_val)
+                average_loss_img_val = (average_loss_img_val * step + sum(epoch_loss_img_val)) / (step + len_epoch_loss_pow_val)
+                total_steps_val += len_epoch_loss_pow_val
+                epoch_loss_pow_val = []
+                epoch_loss_img_val = []
                        
-        print(f'VAL loss: {average_loss_val:0.4} (epoch: {epoch}, step: {total_steps_val})', 
+        print(f'VAL loss: {average_loss_pow_val:0.4} (epoch: {epoch}, step: {total_steps_val})', 
                 "// Avg time/img: %.4f s" % (sum(time_val) / len(time_val) / args.batch_size))
-        writer.add_scalar("val/average_loss", average_loss_val, total_steps_val)
+        writer.add_scalar("val/average_loss_pow", average_loss_pow_val, total_steps_val)
+        writer.add_scalar("val/average_loss_img", average_loss_img_val, total_steps_val)
 
-        average_epoch_loss_val = sum(epoch_loss_val) / len(epoch_loss_val)
+        average_epoch_loss_pow_val = sum(epoch_loss_pow_val) / len(epoch_loss_pow_val)
+        average_epoch_loss_img_val = sum(epoch_loss_img_val) / len(epoch_loss_img_val)
         #scheduler.step(average_epoch_loss_val, epoch)  ## scheduler 1   # update lr if needed
 
         iouVal = 0
@@ -544,7 +573,7 @@ def train(args, model, enc=False):
 
         # remember best valIoU and save checkpoint
         if iouVal == 0:
-            current_acc = average_epoch_loss_val
+            current_acc = average_epoch_loss_pow_val
         else:
             current_acc = iouVal 
         is_best = current_acc > best_acc
@@ -586,7 +615,7 @@ def train(args, model, enc=False):
         #SAVE TO FILE A ROW WITH THE EPOCH RESULT (train loss, val loss, train IoU, val IoU)
         #Epoch		Train-loss		Test-loss	Train-IoU	Test-IoU		learningRate
         with open(automated_log_path, "a") as myfile:
-            myfile.write("\n%d\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.8f" % (epoch, average_epoch_loss_train, average_epoch_loss_val, iouTrain, iouVal, usedLr ))
+            myfile.write("\n%d\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.8f" % (epoch, average_epoch_loss_pow_train, average_epoch_loss_pow_val, iouTrain, iouVal, usedLr ))
     
     return(model)   #return model (convenience for encoder-decoder training)
 
@@ -609,7 +638,7 @@ def main(args):
     #Load Model
     assert os.path.exists(args.model + ".py"), "Error: model definition not found"
     model_file = importlib.import_module(args.model)
-    model = model_file.Net(softmax_classes=args.force_n_classes, spread_class_power=args.spread_init, fix_class_power=args.fix_class_power, late_dropout_prob=args.late_dropout_prob)
+    model = model_file.Net(softmax_classes=args.force_n_classes, spread_class_power=args.spread_init, fix_class_power=args.fix_class_power, late_dropout_prob=args.late_dropout_prob, share_decoder=args.share_decoder)
     copyfile(args.model + ".py", savedir + '/' + args.model + ".py")
     
     if args.cuda:
@@ -682,7 +711,7 @@ def main(args):
                 pretrainedEnc = pretrainedEnc.cpu()     #because loaded encoder is probably saved in cuda
         else:
             pretrainedEnc = next(model.children()).encoder
-        model = model_file.Net( encoder=pretrainedEnc, softmax_classes=args.force_n_classes, spread_class_power=args.spread_init, fix_class_power=args.fix_class_power, late_dropout_prob=args.late_dropout_prob)  #Add decoder to encoder
+        model = model_file.Net( encoder=pretrainedEnc, softmax_classes=args.force_n_classes, spread_class_power=args.spread_init, fix_class_power=args.fix_class_power, late_dropout_prob=args.late_dropout_prob, share_decoder=args.share_decoder)  #Add decoder to encoder
         if args.cuda:
             model = torch.nn.DataParallel(model).cuda()
         #When loading encoder reinitialize weights for decoder because they are set to 0 when training dec
@@ -715,6 +744,7 @@ if __name__ == '__main__':
     parser.add_argument('--fix-class-power', action='store_true', default=False)    # Fix class power so that it is not optimized
     parser.add_argument('--late-dropout-prob', type=float, default=0.3)    # Specify dropout prob in last layer after softmax
     parser.add_argument('--alternate-optimization', action='store_true', default=False) # Alternate optimizing class segmentation and class score every epoch
+    parser.add_argument('--share-decoder', action='store_true', default=False)    # Fix class power so that it is not optimized
 
     parser.add_argument('--iouTrain', action='store_true', default=False) #recommended: False (takes more time to train otherwise)
     parser.add_argument('--iouVal', action='store_true', default=False)  
