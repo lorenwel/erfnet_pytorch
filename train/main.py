@@ -42,6 +42,10 @@ BETAS=(0.9, 0.999)
 OPT_EPS=1e-08
 WEIGHT_DECAY=1e-6
 
+DISCOUNT_RATE_START=0.01
+DISCOUNT_RATE=0.001
+MAX_CONSISTENCY_EPOCH=50
+
 color_transform_target = Colorize(1.0, 2.0, remove_negative=True, extend=True, white_val=1.0)  # min_val, max_val, remove negative
 color_transform_output = Colorize(1.0, 2.0, remove_negative=False, extend=True, white_val=1.0)  # Automatic color based on tensor min/max val
 # color_transform_output = ColorizeMinMax()  # Automatic color based on tensor min/max val
@@ -182,10 +186,41 @@ class L1LossMasked(torch.nn.Module):
     def forward(self, outputs, targets):
         return self.loss(outputs, targets).masked_select(torch.gt(targets, 0.0)).mean()
 
+class L1Loss(torch.nn.Module):
+
+    def __init__(self):
+        super().__init__()
+
+        self.loss = torch.nn.L1Loss(True, True)
+
+    def forward(self, outputs, targets):
+        return self.loss(outputs, targets)
+
+class MSELossWeighted(torch.nn.Module):
+
+    def __init__(self):
+        super().__init__()
+
+        self.loss = torch.nn.L1Loss(False, False)
+
+    def forward(self, outputs, targets, weight):
+        return (self.loss(outputs, targets) * weight).mean()
+
+def copyWeightsToModelNoGrad(model_source, model_target):
+    for source, target in zip(model_source.parameters(), model_target.parameters()):
+        target = source.clone() # Using detach here doesn't work.
+        # Setting requires_grad False here doesn't work.
+    for target in model_target.parameters():
+        target.requires_grad=False
+
+def copyWeightsToModelWithDiscount(model_source, model_target, discount_factor):
+    for source, target in zip(model_source.parameters(), model_target.parameters()):
+        target.data = target.data * (1-discount_factor) + discount_factor * source.data
+
 
 best_acc = 0
 
-def train(args, model, enc=False):
+def train(args, model_student, model_teacher, enc=False):
     global best_acc
 
     weight = torch.ones(1)
@@ -214,6 +249,7 @@ def train(args, model, enc=False):
     else:
         criterion = L1LossMasked()     
 
+    criterion_consistency = MSELossWeighted()
     criterion_val = L1LossMasked()     # L1 loss with averaging over mini-batch
     print(type(criterion))
 
@@ -231,13 +267,13 @@ def train(args, model, enc=False):
             myfile.write("Epoch\t\tTrain-loss\t\tTest-loss\t\tTrain-IoU\t\tTest-IoU\t\tlearningRate")
 
     with open(modeltxtpath, "w") as myfile:
-        myfile.write(str(model))
+        myfile.write(str(model_student))
 
 
     #TODO: reduce memory in first gpu: https://discuss.pytorch.org/t/multi-gpu-training-memory-usage-in-balance/4163/4        #https://github.com/pytorch/pytorch/issues/1893
 
     #optimizer = Adam(model.parameters(), 5e-4, (0.9, 0.999),  eps=1e-08, weight_decay=2e-4)     ## scheduler 1
-    optimizer = Adam(model.parameters(), LEARNING_RATE, BETAS,  eps=OPT_EPS, weight_decay=WEIGHT_DECAY)
+    optimizer = Adam(model_student.parameters(), LEARNING_RATE, BETAS,  eps=OPT_EPS, weight_decay=WEIGHT_DECAY)
     if args.alternate_optimization:
         params_prob = [param for name, param in model.named_parameters() if name != "module.class_power"]
         params_power  = [param for name, param in model.named_parameters() if name == "module.class_power"]
@@ -249,7 +285,8 @@ def train(args, model, enc=False):
     if args.pretrained:
         pretrained = torch.load(args.pretrained)
         start_epoch = pretrained['epoch']
-        model.load_state_dict(pretrained['state_dict'])
+        model_student.load_state_dict(pretrained['state_dict'])
+        model_teacher.load_state_dict(pretrained['state_dict'])
         optimizer.load_state_dict(pretrained['optimizer'])
         print("Loaded pretrained model")
         start_epoch = 1
@@ -264,10 +301,14 @@ def train(args, model, enc=False):
         assert os.path.exists(filenameCheckpoint), "Error: resume option was used but checkpoint was not found in folder"
         checkpoint = torch.load(filenameCheckpoint)
         start_epoch = checkpoint['epoch']
-        model.load_state_dict(checkpoint['state_dict'])
+        model_student.load_state_dict(checkpoint['state_dict'])
+        model_teacher.load_state_dict(checkpoint['state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer'])
         best_acc = checkpoint['best_acc']
         print("=> Loaded checkpoint at epoch {})".format(checkpoint['epoch']))
+
+    # Initialize teacher with same weights as student. 
+    copyWeightsToModelNoGrad(model_student, model_teacher)
 
     #scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5) # set up scheduler     ## scheduler 1
     lambda1 = lambda epoch: pow((1-((epoch-1)/args.num_epochs)),0.9)  ## scheduler 2
@@ -290,6 +331,11 @@ def train(args, model, enc=False):
     for epoch in range(start_epoch, args.num_epochs+1):
         print("----- TRAINING - EPOCH", epoch, "-----")
 
+        if epoch < MAX_CONSISTENCY_EPOCH:
+            cur_consistency_weight = epoch / MAX_CONSISTENCY_EPOCH
+        else:
+            cur_consistency_weight = 1.0
+
         if args.alternate_optimization:
             if epoch % 2 == 0:
                 scheduler_power.step(epoch)
@@ -304,9 +350,11 @@ def train(args, model, enc=False):
             writer = SummaryWriter(log_base_dir + "epoch_" + str(epoch))
 
         average_loss_train = 0
+        average_loss_consistency_train = 0
         average_loss_val = 0
 
         epoch_loss = []
+        epoch_loss_consistency = []
         time_train = []
      
         doIouTrain = args.iouTrain   
@@ -318,7 +366,8 @@ def train(args, model, enc=False):
             print("LEARNING RATE: ", param_group['lr'])
             usedLr = float(param_group['lr'])
 
-        model.train()
+        model_student.train()
+        model_teacher.train()
 
         for step, (images, labels) in enumerate(loader):
 
@@ -335,7 +384,8 @@ def train(args, model, enc=False):
             targets = Variable(labels)
             if (args.force_n_classes) > 0:
                 # Forced into discrete classes. 
-                output_prob, output_power = model(inputs, only_encode=enc)
+                output_student_prob, output_student_power = model_student(inputs, only_encode=enc)
+                output_teacher_prob, output_teacher_power = model_teacher(inputs, only_encode=enc)
                 if args.alternate_optimization:
                     if epoch % 2 == 0:
                         optimizer_power.zero_grad()
@@ -343,24 +393,26 @@ def train(args, model, enc=False):
                         optimizer_prob.zero_grad()
                 else:
                     optimizer.zero_grad()
-                loss = criterion(output_prob, output_power, targets)
+                loss_pred = criterion(output_student_prob, output_student_power, targets)
+                loss_consistency = criterion_consistency(output_student_prob, output_teacher_prob, cur_consistency_weight)
             else:
                 # Straight regressoin
-                output = model(inputs, only_encode=enc)
+                output_student = model_student(inputs, only_encode=enc)
+                output_teacher = model_teacher(inputs, only_encode=enc)
                 optimizer.zero_grad()
-                loss = criterion(output, targets)
+                loss_pred = criterion(output_student, targets)
+                loss_consistency = criterion_consistency(output_student, output_teacher, cur_consistency_weight)
+
 
             #print("targets", np.unique(targets[:, 0].cpu().data.numpy()))
 
-            # Do backward pass. 
-            loss.backward()
+            # Do backward pass.
+            if epoch!=1:
+                loss_pred.backward(retain_graph=True)
+                loss_consistency.backward()
+            else: 
+                loss_pred.backward()
 
-            # for name, param in model.named_parameters():
-            #     if param.grad is None:
-            #         print(name, " grad is bad")
-            #     else:
-            #         print(name, " grad is good")
-            #         print(param.grad)
 
             if args.alternate_optimization:
                 if epoch % 2 == 0:
@@ -370,7 +422,17 @@ def train(args, model, enc=False):
             else:
                 optimizer.step()
 
-            epoch_loss.append(loss.data[0])
+            # Average over first 50 training steps.
+            if epoch == 1:
+                cur_discount_rate = DISCOUNT_RATE_START
+            else:
+                cur_discount_rate = DISCOUNT_RATE
+            copyWeightsToModelWithDiscount(model_student, model_teacher, cur_discount_rate)
+
+            # copyWeightsToModelWithDiscount(model_student, model_teacher, DISCOUNT_RATE)
+
+            epoch_loss.append(loss_pred.data[0])
+            epoch_loss_consistency.append(loss_consistency.data[0])
             time_train.append(time.time() - start_time)
 
             # if (doIouTrain):
@@ -388,29 +450,34 @@ def train(args, model, enc=False):
                 # Figure out and compute tensor to visualize. 
                 if args.force_n_classes > 0:
                     # Compute weighted power consumption
-                    sum_dim = output_prob.dim()-3
-                    weighted_sum_output = (output_prob * output_power).sum(dim=sum_dim, keepdim=True)
-                    if (isinstance(output_prob, list)):
-                        max_prob, vis_output = getMaxProbValue(output_prob[0][0].cpu().data, output_power[0][0].cpu().data)
-                        writer.add_image("train/2_classes", color_transform_classes(output_prob[0][0].cpu().data), step_vis_no)
+                    sum_dim = output_student_prob.dim()-3
+                    weighted_sum_output = (output_student_prob * output_student_power).sum(dim=sum_dim, keepdim=True)
+                    if (isinstance(output_student_prob, list)):
+                        max_prob, vis_output = getMaxProbValue(output_student_prob[0][0].cpu().data, output_student_power[0][0].cpu().data)
+                        max_prob_teacher, vis_output_teacher = getMaxProbValue(output_teacher_prob[0][0].cpu().data, output_teacher_power[0][0].cpu().data)
+                        writer.add_image("train/2_classes", color_transform_classes(output_student_prob[0][0].cpu().data), step_vis_no)
                         writer.add_image("train/3_max_class_probability", max_prob[0][0], step_vis_no)
                         writer.add_image("train/4_weighted_output", color_transform_output(weighted_sum_output[0][0].cpu().data), step_vis_no)
                     else:
-                        max_prob, vis_output = getMaxProbValue(output_prob[0].cpu().data, output_power[0].cpu().data)
-                        writer.add_image("train/2_classes", color_transform_classes(output_prob[0].cpu().data), step_vis_no)
+                        max_prob, vis_output = getMaxProbValue(output_student_prob[0].cpu().data, output_student_power[0].cpu().data)
+                        max_prob_teacher, vis_output_teacher = getMaxProbValue(output_teacher_prob[0].cpu().data, output_teacher_power[0].cpu().data)
+                        writer.add_image("train/2_classes", color_transform_classes(output_student_prob[0].cpu().data), step_vis_no)
                         writer.add_image("train/3_max_class_probability", max_prob[0], step_vis_no)
                         writer.add_image("train/4_weighted_output", color_transform_output(weighted_sum_output[0].cpu().data), step_vis_no)
                 else:
-                    if (isinstance(output, list)):
-                        vis_output = output[0][0].cpu().data
+                    if (isinstance(output_teacher, list)):
+                        vis_output = output_student[0][0].cpu().data
+                        vis_output_teacher = output_teacher[0][0].cpu().data
                     else:
-                        vis_output = output[0].cpu().data
+                        vis_output = output_student[0].cpu().data
+                        vis_output_teacher = output_teacher[0].cpu().data
 
                 start_time_plot = time.time()
                 image = inputs[0].cpu().data
                 # board.image(image, f'input (epoch: {epoch}, step: {step})')
                 writer.add_image("train/1_input", image, step_vis_no)
                 writer.add_image("train/5_output", color_transform_output(vis_output), step_vis_no)
+                writer.add_image("train/5_output_teacher", color_transform_output(vis_output_teacher), step_vis_no)
                 # board.image(color_transform_target(targets[0].cpu().data),
                 #     f'target (epoch: {epoch}, step: {step})')
                 writer.add_image("train/6_target", color_transform_target(targets[0].cpu().data), step_vis_no)
@@ -418,18 +485,23 @@ def train(args, model, enc=False):
             if args.steps_loss > 0 and step % args.steps_loss == 0:
                 len_epoch_loss = len(epoch_loss)
                 average_loss_train = (average_loss_train * step + sum(epoch_loss)) / (step + len_epoch_loss)
+                average_loss_consistency_train = (average_loss_consistency_train * step + sum(epoch_loss_consistency)) / (step + len_epoch_loss)
                 for ind, val in enumerate(epoch_loss):
                     writer.add_scalar("train/instant_loss", val, total_steps_train + ind)
+                for ind, val in enumerate(epoch_loss_consistency):
+                    writer.add_scalar("train/instant_loss_consistency", val, total_steps_train + ind)
                 total_steps_train += len_epoch_loss
                 writer.add_scalar("train/average_loss", average_loss_train, total_steps_train)
+                writer.add_scalar("train/average_loss_consistency", average_loss_consistency_train, total_steps_train)
                 # Clear loss for next loss print iteration.
                 # Output class power costs
                 power_dict = {}
                 if args.force_n_classes > 0:
-                    for ind, val in enumerate(output_power.squeeze()):
+                    for ind, val in enumerate(output_teacher_power.squeeze()):
                         power_dict[str(ind)] = val
                     writer.add_scalars("params/class_cost", power_dict, total_steps_train)
                 epoch_loss = []
+                epoch_loss_consistency = []
                 # Print current loss. 
                 print(f'loss: {average_loss_train:0.4} (epoch: {epoch}, step: {step})', 
                         "// Avg time/img: %.4f s" % (sum(time_train) / len(time_train) / args.batch_size))
@@ -445,7 +517,8 @@ def train(args, model, enc=False):
 
         #Validate on 500 val images after each epoch of training
         print("----- VALIDATING - EPOCH", epoch, "-----")
-        model.eval()
+        model_student.eval()
+        model_teacher.eval()
         epoch_loss_val = []
         time_val = []
 
@@ -460,15 +533,18 @@ def train(args, model, enc=False):
             targets = Variable(labels, volatile=True)
 
             if args.force_n_classes:
-                output_prob, output_power = model(inputs, only_encode=enc) 
-                max_prob, output = getMaxProbValue(output_prob, output_power)
+                output_student_prob, output_student_power = model_student(inputs, only_encode=enc) 
+                output_teacher_prob, output_teacher_power = model_teacher(inputs, only_encode=enc) 
+                max_prob, output_student = getMaxProbValue(output_student_prob, output_student_power)
+                max_prob, output_teacher = getMaxProbValue(output_teacher_prob, output_teacher_power)
                 # Compute weighted power consumption
-                sum_dim = output_prob.dim()-3
-                weighted_sum_output = (output_prob * output_power).sum(dim=sum_dim, keepdim=True)
+                sum_dim = output_student_prob.dim()-3
+                weighted_sum_output = (output_student_prob * output_student_power).sum(dim=sum_dim, keepdim=True)
             else:
-                output = model(inputs, only_encode=enc)
+                output_student = model_student(inputs, only_encode=enc)
+                output_teacher = model_teacher(inputs, only_encode=enc)
 
-            loss = criterion_val(output, targets)
+            loss = criterion_val(output_student, targets)
             epoch_loss_val.append(loss.data[0])
             time_val.append(time.time() - start_time)
 
@@ -489,21 +565,21 @@ def train(args, model, enc=False):
                 image = inputs[0].cpu().data
                 # board.image(image, f'VAL input (epoch: {epoch}, step: {step})')
                 writer.add_image("val/1_input", image, step_vis_no)
-                if isinstance(output, list):   #merge gpu tensors
+                if isinstance(output_teacher, list):   #merge gpu tensors
                     # board.image(color_transform_output(outputs[0][0].cpu().data),
                     # f'VAL output (epoch: {epoch}, step: {step})')
-                    writer.add_image("val/5_output", color_transform_output(output[0][0].cpu().data), step_vis_no)
+                    writer.add_image("val/5_output", color_transform_output(output_teacher[0][0].cpu().data), step_vis_no)
                     if args.force_n_classes > 0:
-                        writer.add_image("val/2_classes", color_transform_classes(output_prob[0][0].cpu().data), step_vis_no)
+                        writer.add_image("val/2_classes", color_transform_classes(output_teacher_prob[0][0].cpu().data), step_vis_no)
                         writer.add_image("val/3_max_class_probability", max_prob[0][0], step_vis_no)
                         writer.add_image("val/4_weighted_output", color_transform_output(weighted_sum_output[0][0].cpu().data), step_vis_no)
 
                 else:
                     # board.image(color_transform_output(outputs[0].cpu().data),
                     # f'VAL output (epoch: {epoch}, step: {step})')
-                    writer.add_image("val/5_output", color_transform_output(output[0].cpu().data), step_vis_no)
+                    writer.add_image("val/5_output", color_transform_output(output_teacher[0].cpu().data), step_vis_no)
                     if args.force_n_classes > 0:
-                        writer.add_image("val/2_classes", color_transform_classes(output_prob[0].cpu().data), step_vis_no)
+                        writer.add_image("val/2_classes", color_transform_classes(output_teacher_prob[0].cpu().data), step_vis_no)
                         writer.add_image("val/3_max_class_probability", max_prob[0], step_vis_no)
                         writer.add_image("val/4_weighted_output", color_transform_output(weighted_sum_output[0].cpu().data), step_vis_no)
                 # board.image(color_transform_target(targets[0].cpu().data),
@@ -513,10 +589,10 @@ def train(args, model, enc=False):
             # Plot histograms
             if args.force_n_classes > 0 and args.visualize and steps_hist > 0 and step % steps_hist == 0:
                 hist_ind = int(step / steps_hist)
-                if (isinstance(output_prob, list)):
-                    _, hist_array = output_prob[0][0].cpu().data.max(dim=0, keepdim=True)
+                if (isinstance(output_teacher_prob, list)):
+                    _, hist_array = output_teacher_prob[0][0].cpu().data.max(dim=0, keepdim=True)
                 else:
-                    _, hist_array = output_prob[0].cpu().data.max(dim=0, keepdim=True)
+                    _, hist_array = output_teacher_prob[0].cpu().data.max(dim=0, keepdim=True)
 
                 writer.add_histogram("val/hist_"+str(hist_ind), hist_array.numpy().flatten(), total_steps_train, hist_bins)  # Use train steps so we can compare with class power plot
                 if epoch == start_epoch:
@@ -557,8 +633,8 @@ def train(args, model, enc=False):
             filenameBest = savedir + '/model_best.pth.tar'
         save_checkpoint({
             'epoch': epoch + 1,
-            'arch': str(model),
-            'state_dict': model.state_dict(),
+            'arch': str(model_student),
+            'state_dict': model_student.state_dict(),
             'best_acc': best_acc,
             'optimizer' : optimizer.state_dict(),
         }, is_best, filenameCheckpoint, filenameBest)
@@ -571,10 +647,10 @@ def train(args, model, enc=False):
             filename = f'{savedir}/model-{epoch:03}.pth'
             filenamebest = f'{savedir}/model_best.pth'
         if args.epochs_save > 0 and step > 0 and step % args.epochs_save == 0:
-            torch.save(model.state_dict(), filename)
+            torch.save(model_student.state_dict(), filename)
             print(f'save: {filename} (epoch: {epoch})')
         if (is_best):
-            torch.save(model.state_dict(), filenamebest)
+            torch.save(model_student.state_dict(), filenamebest)
             print(f'save: {filenamebest} (epoch: {epoch})')
             if (not enc):
                 with open(savedir + "/best.txt", "w") as myfile:
@@ -588,7 +664,7 @@ def train(args, model, enc=False):
         with open(automated_log_path, "a") as myfile:
             myfile.write("\n%d\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.4f\t\t%.8f" % (epoch, average_epoch_loss_train, average_epoch_loss_val, iouTrain, iouVal, usedLr ))
     
-    return(model)   #return model (convenience for encoder-decoder training)
+    return(model_student, model_teacher)   #return model (convenience for encoder-decoder training)
 
 def save_checkpoint(state, is_best, filenameCheckpoint, filenameBest):
     torch.save(state, filenameCheckpoint)
@@ -609,11 +685,13 @@ def main(args):
     #Load Model
     assert os.path.exists(args.model + ".py"), "Error: model definition not found"
     model_file = importlib.import_module(args.model)
-    model = model_file.Net(softmax_classes=args.force_n_classes, spread_class_power=args.spread_init, fix_class_power=args.fix_class_power, late_dropout_prob=args.late_dropout_prob)
+    model_student = model_file.Net(softmax_classes=args.force_n_classes, spread_class_power=args.spread_init, fix_class_power=args.fix_class_power, late_dropout_prob=args.late_dropout_prob)
+    model_teacher = model_file.Net(softmax_classes=args.force_n_classes, spread_class_power=args.spread_init, fix_class_power=args.fix_class_power, late_dropout_prob=args.late_dropout_prob)
     copyfile(args.model + ".py", savedir + '/' + args.model + ".py")
     
     if args.cuda:
-        model = torch.nn.DataParallel(model).cuda()
+        model_student = torch.nn.DataParallel(model_student).cuda()
+        model_teacher = torch.nn.DataParallel(model_teacher).cuda()
     
     if args.state:
         #if args.state is provided then load this state for training
@@ -637,7 +715,8 @@ def main(args):
             return model
 
         #print(torch.load(args.state))
-        model = load_my_state_dict(model, torch.load(args.state))
+        model_student = load_my_state_dict(model_student, torch.load(args.state))
+        model_teacher = load_my_state_dict(model_teacher, torch.load(args.state))
 
     """
     def weights_init(m):
@@ -667,7 +746,7 @@ def main(args):
     #train(args, model)
     if (not args.decoder):
         print("========== ENCODER TRAINING ===========")
-        model = train(args, model, True) #Train encoder
+        model_student, model_teacher = train(args, model_student, model_teacher, True) #Train encoder
     #CAREFUL: for some reason, after training encoder alone, the decoder gets weights=0. 
     #We must reinit decoder weights or reload network passing only encoder in order to train decoder
     print("========== DECODER TRAINING ===========")
@@ -681,12 +760,17 @@ def main(args):
             if (not args.cuda):
                 pretrainedEnc = pretrainedEnc.cpu()     #because loaded encoder is probably saved in cuda
         else:
-            pretrainedEnc = next(model.children()).encoder
-        model = model_file.Net( encoder=pretrainedEnc, softmax_classes=args.force_n_classes, spread_class_power=args.spread_init, fix_class_power=args.fix_class_power, late_dropout_prob=args.late_dropout_prob)  #Add decoder to encoder
+            pretrainedEnc = next(model_student.children()).encoder
+        model_student = model_file.Net( encoder=pretrainedEnc, softmax_classes=args.force_n_classes, spread_class_power=args.spread_init, fix_class_power=args.fix_class_power, late_dropout_prob=args.late_dropout_prob)  #Add decoder to encoder
+        model_teacher = model_file.Net( encoder=pretrainedEnc, softmax_classes=args.force_n_classes, spread_class_power=args.spread_init, fix_class_power=args.fix_class_power, late_dropout_prob=args.late_dropout_prob)  #Add decoder to encoder
         if args.cuda:
-            model = torch.nn.DataParallel(model).cuda()
+            def make_cuda(model):
+                return torch.nn.DataParallel(model).cuda()
+
+            model_student = make_cuda(model_student)
+            model_teacher = make_cuda(model_teacher)
         #When loading encoder reinitialize weights for decoder because they are set to 0 when training dec
-    model = train(args, model, False)   #Train decoder
+    model_student, model_teacher = train(args, model_student, model_teacher, False)   #Train decoder
     print("========== TRAINING FINISHED ===========")
 
 if __name__ == '__main__':
