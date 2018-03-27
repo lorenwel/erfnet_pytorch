@@ -173,7 +173,7 @@ class L1LossClassProbMasked(torch.nn.Module):
         # cur_loss = self.loss(output_prob.expand(shape), targets.expand(shape))
         weighted_loss = cur_loss * output_prob
         # only compute loss for places where label exists.
-        masked_loss = weighted_loss.masked_select(torch.gt(targets, 0.0))
+        masked_loss = weighted_loss.sum(dim=1, keepdim=True).masked_select(torch.gt(targets, 0.0))
         return masked_loss.mean()
 
 class L1LossMasked(torch.nn.Module):
@@ -544,7 +544,7 @@ def train(args, model_student, model_teacher, enc=False):
                 output_student = model_student(inputs, only_encode=enc)
                 output_teacher = model_teacher(inputs, only_encode=enc)
 
-            loss = criterion_val(output_student, targets)
+            loss = criterion_val(output_teacher, targets)
             epoch_loss_val.append(loss.data[0])
             time_val.append(time.time() - start_time)
 
