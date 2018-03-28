@@ -8,6 +8,8 @@ from PIL import Image
 from numpy import genfromtxt, count_nonzero
 
 from torch.utils.data import Dataset
+from torchvision.transforms import ToTensor
+from transform import ToFloatLabel
 
 EXTENSIONS = ['.jpg', '.png']
 
@@ -146,7 +148,7 @@ class self_supervised_power(Dataset):
         else:
             print("Unsupported file format " + self.file_format)
 
-        label_img = Image.fromarray(label_array, 'F')
+        label = Image.fromarray(label_array, 'F')
 
         # print ("Float " + filenameGt)
         # print (count_nonzero(label_array == -1.0))
@@ -160,7 +162,17 @@ class self_supervised_power(Dataset):
         # print ("Number of positive elements: " + str(torch.gt(label_tensor, 0).sum()))
 
         # Image transformation which is also expected to return a tensor. 
-        image, label = self.co_transform(image, label_img)
+        if self.co_transform is not None:
+            image1, image2, label = self.co_transform(image, label)
+        else:
+            image1 = image
+            image2 = image
+        # Convert to tensor
+        image1 = ToTensor()(image1)
+        image2 = ToTensor()(image2)
+        label = ToFloatLabel()(label)
+        # Remove 0.0 image regions from transform padding
+        label[label == 0.0] = -1.0
 
 
         # print ("Label is type " + label.type())
@@ -177,7 +189,7 @@ class self_supervised_power(Dataset):
         if n_nan > 0:
             print("File " + filenameGt + " produces nan " + str(n_nan))
 
-        return image, label
+        return image1, image2, label
 
     def __len__(self):
         return len(self.filenames)
