@@ -114,7 +114,7 @@ class cityscapes(Dataset):
 
 class self_supervised_power(Dataset):
 
-    def __init__(self, root, co_transform, subset='train', file_format="npy"):
+    def __init__(self, root, co_transform, subset='train', file_format="npy", subsample=1):
         self.images_root = os.path.join(root, subset)
         self.labels_root = os.path.join(root, subset)
         self.file_format = file_format
@@ -122,13 +122,17 @@ class self_supervised_power(Dataset):
         print ("Image root is: " + self.images_root)
         print ("Label root is: " + self.labels_root)
         print ("Load files with extension: " + self.file_format)
+        if subsample > 1:
+            print("Using every ", subsample, "th image")
 
-        self.filenames = [os.path.join(dp, f) for dp, dn, fn in os.walk(os.path.expanduser(self.images_root), followlinks=True) for f in fn if is_self_supervised_image(f)]
-        self.filenames.sort()
+        filenames = [os.path.join(dp, f) for dp, dn, fn in os.walk(os.path.expanduser(self.images_root), followlinks=True) for f in fn if is_self_supervised_image(f)]
+        filenames.sort()
+        self.filenames = [val for ind, val in enumerate(filenames) if ind % subsample == 0]
         print ("Found " + str(len(self.filenames)) + " images.")
 
-        self.filenamesGt = [os.path.join(dp, f) for dp, dn, fn in os.walk(os.path.expanduser(self.labels_root), followlinks=True) for f in fn if is_self_supervised_label(f, self.file_format)]
-        self.filenamesGt.sort()
+        filenamesGt = [os.path.join(dp, f) for dp, dn, fn in os.walk(os.path.expanduser(self.labels_root), followlinks=True) for f in fn if is_self_supervised_label(f, self.file_format)]
+        filenamesGt.sort()
+        self.filenamesGt = [val for ind, val in enumerate(filenamesGt) if ind % subsample == 0]
         print ("Found " + str(len(self.filenamesGt)) + " labels.")
 
         self.co_transform = co_transform # ADDED THIS

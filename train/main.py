@@ -45,8 +45,8 @@ WEIGHT_DECAY=1e-6
 
 DISCOUNT_RATE_START=0.01
 DISCOUNT_RATE=0.001
-MAX_CONSISTENCY_EPOCH=50
-DISCOUNT_RATE_START_EPOCH=20
+MAX_CONSISTENCY_EPOCH=20
+DISCOUNT_RATE_START_EPOCH=0
 
 color_transform_target = Colorize(1.0, 2.0, remove_negative=True, extend=True, white_val=1.0)  # min_val, max_val, remove negative
 color_transform_output = Colorize(1.0, 2.0, remove_negative=False, extend=True, white_val=1.0)  # Automatic color based on tensor min/max val
@@ -197,7 +197,7 @@ class MSELossWeighted(torch.nn.Module):
     def __init__(self):
         super().__init__()
 
-        self.loss = torch.nn.L1Loss(False, False)
+        self.loss = torch.nn.MSELoss(False, False)
 
     def forward(self, outputs, targets, weight):
         return (self.loss(outputs, targets) * weight).mean()
@@ -280,10 +280,8 @@ def train(args, model_student, model_teacher, enc=False):
 
     if args.pretrained:
         pretrained = torch.load(args.pretrained)
-        start_epoch = pretrained['epoch']
-        model_student.load_state_dict(pretrained['state_dict'])
-        model_teacher.load_state_dict(pretrained['state_dict'])
-        optimizer.load_state_dict(pretrained['optimizer'])
+        model_student.load_state_dict(pretrained)
+        model_teacher.load_state_dict(pretrained)
         print("Loaded pretrained model")
         start_epoch = 1
 
@@ -387,7 +385,7 @@ def train(args, model_student, model_teacher, enc=False):
                 labels = labels.cuda()
 
             inputs1 = Variable(images1)
-            inputs2 = Variable(images2)
+            inputs2 = Variable(images2, volatile=True)
             targets = Variable(labels)
             if (args.force_n_classes) > 0:
                 # Forced into discrete classes. 
@@ -416,7 +414,7 @@ def train(args, model_student, model_teacher, enc=False):
             #print("targets", np.unique(targets[:, 0].cpu().data.numpy()))
 
             # Do backward pass.
-            if epoch!=1:
+            if epoch>0:
                 loss_student_pred.backward(retain_graph=True)
                 loss_consistency.backward()
             else: 
@@ -532,7 +530,7 @@ def train(args, model_student, model_teacher, enc=False):
             start_time = time.time()
 
             
-        average_epoch_loss_train = sum(epoch_loss_teacher) / len(epoch_loss_teacher)
+        average_epoch_loss_train = average_loss_teacher_train   
         
         iouTrain = 0
         if (doIouTrain):
@@ -600,7 +598,8 @@ def train(args, model_student, model_teacher, enc=False):
                 if isinstance(output_teacher, list):   #merge gpu tensors
                     # board.image(color_transform_output(outputs[0][0].cpu().data),
                     # f'VAL output (epoch: {epoch}, step: {step})')
-                    writer.add_image("val/5_output", color_transform_output(output_teacher[0][0].cpu().data), step_vis_no)
+                    writer.add_image("val/5_output_teacher", color_transform_output(output_teacher[0][0].cpu().data), step_vis_no)
+                    writer.add_image("val/5_output_student", color_transform_output(output_student[0][0].cpu().data), step_vis_no)
                     if args.force_n_classes > 0:
                         writer.add_image("val/2_classes", color_transform_classes(output_teacher_prob[0][0].cpu().data), step_vis_no)
                         writer.add_image("val/3_max_class_probability", max_prob[0][0], step_vis_no)
@@ -609,7 +608,8 @@ def train(args, model_student, model_teacher, enc=False):
                 else:
                     # board.image(color_transform_output(outputs[0].cpu().data),
                     # f'VAL output (epoch: {epoch}, step: {step})')
-                    writer.add_image("val/5_output", color_transform_output(output_teacher[0].cpu().data), step_vis_no)
+                    writer.add_image("val/5_output_teacher", color_transform_output(output_teacher[0].cpu().data), step_vis_no)
+                    writer.add_image("val/5_output_student", color_transform_output(output_student[0].cpu().data), step_vis_no)
                     if args.force_n_classes > 0:
                         writer.add_image("val/2_classes", color_transform_classes(output_teacher_prob[0].cpu().data), step_vis_no)
                         writer.add_image("val/3_max_class_probability", max_prob[0], step_vis_no)
@@ -643,7 +643,7 @@ def train(args, model_student, model_teacher, enc=False):
         writer.add_scalar("val/average_loss_student", average_loss_student_val, total_steps_val)
         writer.add_scalar("val/average_loss_teacher", average_loss_teacher_val, total_steps_val)
 
-        average_epoch_loss_val = sum(epoch_loss_teacher_val) / len(epoch_loss_teacher_val)
+        average_epoch_loss_val = average_loss_teacher_val
         #scheduler.step(average_epoch_loss_val, epoch)  ## scheduler 1   # update lr if needed
 
         iouVal = 0
