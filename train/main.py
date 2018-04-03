@@ -43,10 +43,10 @@ BETAS=(0.9, 0.999)
 OPT_EPS=1e-08
 WEIGHT_DECAY=1e-6
 
-DISCOUNT_RATE_START=0.01
-DISCOUNT_RATE=0.001
-MAX_CONSISTENCY_EPOCH=20
-DISCOUNT_RATE_START_EPOCH=0
+DISCOUNT_RATE_START=0.1
+DISCOUNT_RATE=0.01
+MAX_CONSISTENCY_EPOCH=30
+DISCOUNT_RATE_START_EPOCH=50
 
 color_transform_target = Colorize(1.0, 2.0, remove_negative=True, extend=True, white_val=1.0)  # min_val, max_val, remove negative
 color_transform_output = Colorize(1.0, 2.0, remove_negative=False, extend=True, white_val=1.0)  # Automatic color based on tensor min/max val
