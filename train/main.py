@@ -25,7 +25,7 @@ from numpy.lib.stride_tricks import as_strided
 
 from tensorboardX import SummaryWriter
 
-from dataset import VOC12,cityscapes,self_supervised_power
+from dataset import self_supervised_power
 from transform import Relabel, ToLabel, Colorize, ColorizeMinMax, ColorizeWithProb, ColorizeClasses, FloatToLongLabel, ToFloatLabel, getMaxProbValue
 from visualize import Dashboard
 
@@ -226,9 +226,9 @@ def train(args, model_student, model_teacher, enc=False):
     # Set data loading variables
     co_transform = MyCoTransform(enc, augment=True, height=480)#1024)
     co_transform_val = MyCoTransform(enc, augment=False, height=480)#1024)
-    dataset_train = self_supervised_power(args.datadir, co_transform, 'train')
+    dataset_train = self_supervised_power(args.datadir, co_transform, 'train', file_format="csv", subsample=args.subsample)
     # dataset_train = self_supervised_power(args.datadir, None, 'train')
-    dataset_val = self_supervised_power(args.datadir, None, 'val')
+    dataset_val = self_supervised_power(args.datadir, None, 'val', file_format="csv", subsample=args.subsample)
 
     if args.force_n_classes > 0:
         color_transform_classes = ColorizeClasses(args.force_n_classes)  # Automatic color based on max class probability
@@ -834,6 +834,7 @@ if __name__ == '__main__':
     parser.add_argument('--fix-class-power', action='store_true', default=False)    # Fix class power so that it is not optimized
     parser.add_argument('--late-dropout-prob', type=float, default=0.3)    # Specify dropout prob in last layer after softmax
     parser.add_argument('--alternate-optimization', action='store_true', default=False) # Alternate optimizing class segmentation and class score every epoch
+    parser.add_argument('--subsample', type=int, default=1) # Only use every nth image of a dataset.
 
     parser.add_argument('--iouTrain', action='store_true', default=False) #recommended: False (takes more time to train otherwise)
     parser.add_argument('--iouVal', action='store_true', default=False)  
