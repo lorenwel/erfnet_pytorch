@@ -305,7 +305,7 @@ def train(args, model_student, model_teacher, enc=False):
         scheduler_prob = lr_scheduler.LambdaLR(optimizer_prob, lr_lambda=lambda1)                             ## scheduler 2
         scheduler_power = lr_scheduler.LambdaLR(optimizer_power, lr_lambda=lambda1)                             ## scheduler 2
 
-    if args.visualize and args.steps_plot > 0:
+    if args.visualize:
         board = Dashboard(args.port)
         writer = SummaryWriter()
         log_base_dir = writer.file_writer.get_logdir() + "/"
