@@ -37,6 +37,7 @@ from shutil import copyfile
 NUM_CHANNELS = 3
 # NUM_CLASSES = 20 #pascal=22, cityscapes=20
 NUM_HISTOGRAMS = 5
+NUM_IMG_PER_EPOCH = 5
 # Optimizer params.
 LEARNING_RATE=5e-4
 BETAS=(0.9, 0.999)
@@ -313,6 +314,12 @@ def train(args, model_student, model_teacher, enc=False):
         total_steps_val = 0
         # Figure out histogram plot indices.
         steps_hist = int(len(loader_val)/NUM_HISTOGRAMS)
+        steps_img_train = int(len(loader)/(NUM_IMG_PER_EPOCH-1))
+        if steps_img_train == 0:
+            steps_img_train = 1
+        steps_img_val = int(len(loader_val)/(NUM_IMG_PER_EPOCH-1))
+        if steps_img_val == 0:
+            steps_img_val = 1
         hist_bins = np.arange(-0.5, args.force_n_classes+0.5, 1.0)
 
     for epoch in range(start_epoch, args.num_epochs+1):
@@ -434,7 +441,7 @@ def train(args, model_student, model_teacher, enc=False):
             #     #print ("Time to add confusion matrix: ", time.time() - start_time_iou)      
 
             #print(outputs.size())
-            if args.visualize and args.steps_plot > 0 and step % args.steps_plot == 0:
+            if args.visualize and step % steps_img_train == 0:
                 step_vis_no = total_steps_train + len(epoch_loss_student)
 
                 # Figure out and compute tensor to visualize. 
@@ -565,7 +572,7 @@ def train(args, model_student, model_teacher, enc=False):
             #     #print ("Time to add confusion matrix: ", time.time() - start_time_iou)
 
             # Plot images
-            if args.visualize and args.steps_plot > 0 and step % args.steps_plot == 0:
+            if args.visualize and step % steps_img_val == 0:
                 step_vis_no = total_steps_val + len(epoch_loss_student_val)
                 start_time_plot = time.time()
                 image1 = inputs1[0].cpu().data
