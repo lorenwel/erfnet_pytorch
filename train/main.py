@@ -801,7 +801,6 @@ if __name__ == '__main__':
     parser.add_argument('--num-epochs', type=int, default=150)
     parser.add_argument('--num-workers', type=int, default=4)
     parser.add_argument('--batch-size', type=int, default=6)
-    parser.add_argument('--steps-plot', type=int, default=500)
     parser.add_argument('--epochs-save', type=int, default=0)    #You can use this value to save model every X epochs
     parser.add_argument('--savedir', required=True)
     parser.add_argument('--decoder', action='store_true')
