@@ -53,13 +53,6 @@ color_transform_output = Colorize(1.0, 2.0, remove_negative=False, extend=True, 
 # color_transform_output = ColorizeMinMax()  # Automatic color based on tensor min/max val
 image_transform = ToPILImage()
 
-def applyVisualAugmentation(image):
-    rand_val = np.random.randn(4)/4 + 1.0    # Generate rand around 1
-    sharpness = ImageEnhance.Sharpness(image)
-    color = ImageEnhance.Color(sharpness.enhance(rand_val[0]))
-    brightness = ImageEnhance.Brightness(color.enhance(rand_val[1]))
-    contrast = ImageEnhance.Contrast(brightness.enhance(rand_val[2]))
-    return contrast.enhance(rand_val[3])
 
 
 #Augmentations - different function implemented to perform random augments on both image and target
@@ -343,9 +336,6 @@ def train(args, model_student, model_teacher, enc=False):
             writer.close()
             writer = SummaryWriter(log_base_dir + "epoch_" + str(epoch))
 
-        average_loss_student_train = 0
-        average_loss_teacher_train = 0
-        average_loss_consistency_train = 0
         average_loss_student_val = 0
         average_loss_teacher_val = 0
 
@@ -492,45 +482,44 @@ def train(args, model_student, model_teacher, enc=False):
                 #     f'target (epoch: {epoch}, step: {step})')
                 writer.add_image("train/6_target", color_transform_target(targets[0].cpu().data), step_vis_no)
                 print ("Time to paint images: ", time.time() - start_time_plot)
-            if args.steps_loss > 0 and step % args.steps_loss == 0:
-                len_epoch_loss = len(epoch_loss_student)
-                average_loss_student_train = (average_loss_student_train * step + sum(epoch_loss_student)) / (step + len_epoch_loss)
-                average_loss_teacher_train = (average_loss_teacher_train * step + sum(epoch_loss_teacher)) / (step + len_epoch_loss)
-                average_loss_consistency_train = (average_loss_consistency_train * step + sum(epoch_loss_consistency)) / (step + len_epoch_loss)
-                for ind, val in enumerate(epoch_loss_student):
-                    writer.add_scalar("train/instant_loss_student", val, total_steps_train + ind)
-                for ind, val in enumerate(epoch_loss_teacher):
-                    writer.add_scalar("train/instant_loss_teacher", val, total_steps_train + ind)
-                for ind, val in enumerate(epoch_loss_consistency):
-                    writer.add_scalar("train/instant_loss_consistency", val, total_steps_train + ind)
-                total_steps_train += len_epoch_loss
-                writer.add_scalar("train/average_loss_student", average_loss_student_train, total_steps_train)
-                writer.add_scalar("train/average_loss_teacher", average_loss_teacher_train, total_steps_train)
-                writer.add_scalar("train/average_loss_consistency", average_loss_consistency_train, total_steps_train)
-                # Clear loss for next loss print iteration.
-                # Output class power costs
-                power_dict = {}
-                if args.force_n_classes > 0:
-                    for ind, val in enumerate(output_teacher_power.squeeze()):
-                        power_dict[str(ind)] = val
-                    writer.add_scalars("params/class_cost", power_dict, total_steps_train)
-                epoch_loss_student = []
-                epoch_loss_teacher = []
-                epoch_loss_consistency = []
-                # Print current loss. 
-                print(f'loss: {average_loss_teacher_train:0.4} (epoch: {epoch}, step: {step})', 
-                        "// Train: %.4f s" % (sum(time_train) / len(time_train) / args.batch_size), 
-                        "// Load: %.4f s" % (sum(time_load) / len(time_load) / args.batch_size),
-                        "// Iter: %.4f s" % (sum(time_iter) / len(time_iter) / args.batch_size))
+                
 
-            if step == 0:
-                time_iter.clear()
-            time_iter.append(time.time() - start_time)
-            # Save time for image loading duration.
-            start_time = time.time()
+        len_epoch_loss = len(epoch_loss_student)
+        for ind, val in enumerate(epoch_loss_student):
+            writer.add_scalar("train/instant_loss_student", val, total_steps_train + ind)
+        for ind, val in enumerate(epoch_loss_teacher):
+            writer.add_scalar("train/instant_loss_teacher", val, total_steps_train + ind)
+        for ind, val in enumerate(epoch_loss_consistency):
+            writer.add_scalar("train/instant_loss_consistency", val, total_steps_train + ind)
+        total_steps_train += len_epoch_loss
+        avg_loss_teacher = sum(epoch_loss_teacher)/len(epoch_loss_teacher)
+        writer.add_scalar("train/average_loss_student", sum(epoch_loss_student)/len(epoch_loss_student), total_steps_train)
+        writer.add_scalar("train/average_loss_teacher", avg_loss_teacher, total_steps_train)
+        writer.add_scalar("train/average_loss_consistency", sum(epoch_loss_consistency)/len(epoch_loss_consistency), total_steps_train)
+        # Clear loss for next loss print iteration.
+        # Output class power costs
+        power_dict = {}
+        if args.force_n_classes > 0:
+            for ind, val in enumerate(output_teacher_power.squeeze()):
+                power_dict[str(ind)] = val
+            writer.add_scalars("params/class_cost", power_dict, total_steps_train)
+        epoch_loss_student = []
+        epoch_loss_teacher = []
+        epoch_loss_consistency = []
+        # Print current loss. 
+        print(f'loss: {avg_loss_teacher:0.4} (epoch: {epoch}, step: {step})', 
+                "// Train: %.4f s" % (sum(time_train) / len(time_train) / args.batch_size), 
+                "// Load: %.4f s" % (sum(time_load) / len(time_load) / args.batch_size),
+                "// Iter: %.4f s" % (sum(time_iter) / len(time_iter) / args.batch_size))
+
+        if step == 0:
+            time_iter.clear()
+        time_iter.append(time.time() - start_time)
+        # Save time for image loading duration.
+        start_time = time.time()
 
             
-        average_epoch_loss_train = average_loss_teacher_train   
+        average_epoch_loss_train = avg_loss_teacher   
         
         iouTrain = 0
         if (doIouTrain):
