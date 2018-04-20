@@ -331,11 +331,6 @@ def train(args, model_student, model_teacher, enc=False):
         else:
             scheduler.step(epoch)    ## scheduler 2
 
-        # Create new run in summary writer. 
-        if args.split_epoch_vis:
-            writer.close()
-            writer = SummaryWriter(log_base_dir + "epoch_" + str(epoch))
-
         average_loss_student_val = 0
         average_loss_teacher_val = 0
 
@@ -440,10 +435,7 @@ def train(args, model_student, model_teacher, enc=False):
 
             #print(outputs.size())
             if args.visualize and args.steps_plot > 0 and step % args.steps_plot == 0:
-                if args.split_epoch_vis:
-                    step_vis_no = step
-                else:
-                    step_vis_no = total_steps_train + len(epoch_loss_student)
+                step_vis_no = total_steps_train + len(epoch_loss_student)
 
                 # Figure out and compute tensor to visualize. 
                 if args.force_n_classes > 0:
@@ -493,9 +485,9 @@ def train(args, model_student, model_teacher, enc=False):
             writer.add_scalar("train/instant_loss_consistency", val, total_steps_train + ind)
         total_steps_train += len_epoch_loss
         avg_loss_teacher = sum(epoch_loss_teacher)/len(epoch_loss_teacher)
-        writer.add_scalar("train/average_loss_student", sum(epoch_loss_student)/len(epoch_loss_student), total_steps_train)
-        writer.add_scalar("train/average_loss_teacher", avg_loss_teacher, total_steps_train)
-        writer.add_scalar("train/average_loss_consistency", sum(epoch_loss_consistency)/len(epoch_loss_consistency), total_steps_train)
+        writer.add_scalar("train/epoch_loss_student", sum(epoch_loss_student)/len(epoch_loss_student), total_steps_train)
+        writer.add_scalar("train/epoch_loss_teacher", avg_loss_teacher, total_steps_train)
+        writer.add_scalar("train/epoch_loss_consistency", sum(epoch_loss_consistency)/len(epoch_loss_consistency), total_steps_train)
         # Clear loss for next loss print iteration.
         # Output class power costs
         power_dict = {}
@@ -574,10 +566,7 @@ def train(args, model_student, model_teacher, enc=False):
 
             # Plot images
             if args.visualize and args.steps_plot > 0 and step % args.steps_plot == 0:
-                if args.split_epoch_vis:
-                    step_vis_no = step
-                else:
-                    step_vis_no = total_steps_val + len(epoch_loss_student_val)
+                step_vis_no = total_steps_val + len(epoch_loss_student_val)
                 start_time_plot = time.time()
                 image1 = inputs1[0].cpu().data
                 image2 = inputs2[0].cpu().data
@@ -618,21 +607,17 @@ def train(args, model_student, model_teacher, enc=False):
                 writer.add_histogram("val/hist_"+str(hist_ind), hist_array.numpy().flatten(), total_steps_train, hist_bins)  # Use train steps so we can compare with class power plot
                 if epoch == start_epoch:
                     writer.add_image("val/hist/input_"+str(hist_ind), image2)  # Visualize image used to compute histogram
-            # Compute loss
-            if args.steps_loss > 0 and step % args.steps_loss == 0:
-                len_epoch_loss_val = len(epoch_loss_student_val)
-                average_loss_student_val = (average_loss_student_val * step + sum(epoch_loss_student_val)) / (step + len_epoch_loss_val)
-                average_loss_teacher_val = (average_loss_teacher_val * step + sum(epoch_loss_teacher_val)) / (step + len_epoch_loss_val)
-                total_steps_val += len_epoch_loss_val
-                epoch_loss_student_val = []
-                epoch_loss_teacher_val = []
                        
-        print(f'VAL loss_teacher: {average_loss_teacher_val:0.4} (epoch: {epoch}, step: {total_steps_val})', 
+        total_steps_val += len(epoch_loss_student_val)
+        avg_loss_teacher_val = sum(epoch_loss_teacher_val) / len(epoch_loss_teacher_val)
+        print(f'VAL loss_teacher: {avg_loss_teacher_val:0.4} (epoch: {epoch}, step: {total_steps_val})', 
                 "// Avg time/img: %.4f s" % (sum(time_val) / len(time_val) / args.batch_size))
-        writer.add_scalar("val/average_loss_student", average_loss_student_val, total_steps_val)
-        writer.add_scalar("val/average_loss_teacher", average_loss_teacher_val, total_steps_val)
+        writer.add_scalar("val/epoch_loss_student", sum(epoch_loss_student_val) / len(epoch_loss_student_val), total_steps_val)
+        writer.add_scalar("val/epoch_loss_teacher", avg_loss_teacher_val, total_steps_val)
+        epoch_loss_student_val = []
+        epoch_loss_teacher_val = []
 
-        average_epoch_loss_val = average_loss_teacher_val
+        average_epoch_loss_val = avg_loss_teacher_val
         #scheduler.step(average_epoch_loss_val, epoch)  ## scheduler 1   # update lr if needed
 
         iouVal = 0
@@ -809,7 +794,6 @@ if __name__ == '__main__':
     parser.add_argument('--num-epochs', type=int, default=150)
     parser.add_argument('--num-workers', type=int, default=4)
     parser.add_argument('--batch-size', type=int, default=6)
-    parser.add_argument('--steps-loss', type=int, default=100)
     parser.add_argument('--steps-plot', type=int, default=500)
     parser.add_argument('--epochs-save', type=int, default=0)    #You can use this value to save model every X epochs
     parser.add_argument('--savedir', required=True)
@@ -818,7 +802,6 @@ if __name__ == '__main__':
     parser.add_argument('--pretrained') #, default="../trained_models/erfnet_encoder_pretrained.pth.tar")
     parser.add_argument('--visualize', action='store_true')
     parser.add_argument('--force-n-classes', type=int, default=0)   # Force network to discretize output into classes with discrete output power
-    parser.add_argument('--split-epoch-vis', action='store_true', default=False)    # Split tensorboard output by epoch
     parser.add_argument('--spread-init', action='store_true', default=False)    # Spread initial class power over interval [0.7,...,2.0]
     parser.add_argument('--fix-class-power', action='store_true', default=False)    # Fix class power so that it is not optimized
     parser.add_argument('--late-dropout-prob', type=float, default=0.3)    # Specify dropout prob in last layer after softmax
