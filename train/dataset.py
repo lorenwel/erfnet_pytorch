@@ -55,16 +55,28 @@ class self_supervised_power(Dataset):
         if subsample > 1:
             print("Using every ", subsample, "th image")
 
+
+        filenamesGt = [os.path.join(dp, f) for dp, dn, fn in os.walk(os.path.expanduser(self.images_root), followlinks=True) for f in fn if is_self_supervised_label(f, self.file_format)]
+        filenamesGt.sort()
+
+        filenamesGt = [val for ind, val in enumerate(filenamesGt) if ind % subsample == 0] # Subsample.
+        # print("Filtering empty labels.")
+        # if self.file_format == "npy":
+        #     filenamesGt = [val for val in filenamesGt if (np.load(image_path_city(self.labels_root, val)) > 0.0).any()] # Remove label images without label.
+        # elif self.file_format == "csv":
+        #     filenamesGt = [val for val in filenamesGt if (genfromtxt(image_path_city(self.labels_root, val), delimiter=',', dtype="float32") > 0.0).any()] # Remove label images without label.
+        # else:
+        #     print("Unsupported file format " + self.file_format)
+
+        self.filenamesGt = filenamesGt
+        base_filenames = [split_first_subname(image_basename(val)) for val in self.filenamesGt]
+        print ("Found " + str(len(self.filenamesGt)) + " labels.")
+
         filenames = [os.path.join(dp, f) for dp, dn, fn in os.walk(os.path.expanduser(self.images_root), followlinks=True) for f in fn if is_self_supervised_image(f)]
-        filenames.sort()
-        self.filenames = [val for ind, val in enumerate(filenames) if ind % subsample == 0]
-        base_filenames = [split_first_subname(image_basename(val)) for val in self.filenames]
+        self.filenames = [val for val in filenames if split_first_subname(image_basename(val)) in base_filenames]
+        self.filenames.sort()
         print ("Found " + str(len(self.filenames)) + " images.")
 
-        filenamesGt = [os.path.join(dp, f) for dp, dn, fn in os.walk(os.path.expanduser(self.labels_root), followlinks=True) for f in fn if is_self_supervised_label(f, self.file_format)]
-        self.filenamesGt = [val for val in filenamesGt if split_first_subname(image_basename(val)) in base_filenames]
-        self.filenamesGt.sort()
-        print ("Found " + str(len(self.filenamesGt)) + " labels.")
 
         self.co_transform = co_transform # ADDED THIS
 

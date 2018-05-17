@@ -107,10 +107,12 @@ class MyCoTransform(object):
             target_crop = target_crop.crop((hor_pos, 480 - img_size[1], hor_pos + img_size[0], 480))
             target_test = np.array(target_crop, dtype="float32")
             # Condition to make sure we have crop containing footprints
-            if (img_size[0] == 640 or np.any(target_test > 0.0)):
+            if np.any(target_test > 0.0):
                 input = input_crop
                 target = target_crop
                 break
+            elif img_size[0] == 640:
+                print ("Encountered image with labels crictically close to border")
 
         # Color transformation
         input1 = self.color_augmentation(input)
