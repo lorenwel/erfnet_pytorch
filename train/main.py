@@ -332,6 +332,9 @@ def train(args, model_student, model_teacher, enc=False):
         else:
             cur_consistency_weight = 1.0
 
+        if args.no_mean_teacher:
+            cur_consistency_weight = 0.0
+
         if args.alternate_optimization:
             if epoch % 2 == 0:
                 scheduler_power.step(epoch)
@@ -408,7 +411,7 @@ def train(args, model_student, model_teacher, enc=False):
             #print("targets", np.unique(targets[:, 0].cpu().data.numpy()))
 
             # Do backward pass.
-            if epoch>0:
+            if epoch>0 and not args.no_mean_teacher:
                 loss_student_pred.backward(retain_graph=True)
                 loss_consistency.backward()
             else: 
@@ -815,6 +818,7 @@ if __name__ == '__main__':
     parser.add_argument('--late-dropout-prob', type=float, default=0.3)    # Specify dropout prob in last layer after softmax
     parser.add_argument('--alternate-optimization', action='store_true', default=False) # Alternate optimizing class segmentation and class score every epoch
     parser.add_argument('--subsample', type=int, default=1) # Only use every nth image of a dataset.
+    parser.add_argument('--no-mean-teacher', action='store_true', default=False)
 
     parser.add_argument('--iouTrain', action='store_true', default=False) #recommended: False (takes more time to train otherwise)
     parser.add_argument('--iouVal', action='store_true', default=False)  
