@@ -114,7 +114,7 @@ class SoftMaxConv (nn.Module):
         super().__init__()
 
         print("Added intermediate softmax layer with ", softmax_classes, " classes")
-        self.convolution = nn.ConvTranspose2d( 16, softmax_classes, 2, stride=2, padding=0, output_padding=0, bias=True)
+        self.convolution = nn.ConvTranspose2d( 32, softmax_classes, 2, stride=2, padding=0, output_padding=0, bias=True)
         print("Set late dropout prob to ", late_dropout_prob)
         self.dropout = torch.nn.Dropout2d(p=late_dropout_prob)
 
@@ -147,23 +147,23 @@ class Decoder (nn.Module):
     def __init__(self, softmax_classes, late_dropout_prob):
         super().__init__()
 
-        self.scalar_decoder_1 = DecoderBlock(128, 32)
-        self.scalar_decoder_2 = DecoderBlock(64, 8)
+        self.scalar_decoder_1 = DecoderBlock(128, 64)
+        self.scalar_decoder_2 = DecoderBlock(128, 16)
 
-        self.trav_decoder_1 = DecoderBlock(128, 16)
-        self.trav_decoder_2 = DecoderBlock(32, 4)
+        self.trav_decoder_1 = DecoderBlock(128, 32)
+        self.trav_decoder_2 = DecoderBlock(64, 8)
 
-        self.autoenc_decoder_1 = DecoderBlock(128, 16)
-        self.autoenc_decoder_2 = DecoderBlock(16, 4)
+        self.autoenc_decoder_1 = DecoderBlock(128, 32)
+        self.autoenc_decoder_2 = DecoderBlock(32, 8)
 
-        self.trav_output_conv = nn.ConvTranspose2d(8, 1, 2, stride=2, padding=0, output_padding=0, bias=True)
+        self.trav_output_conv = nn.ConvTranspose2d(16, 1, 2, stride=2, padding=0, output_padding=0, bias=True)
 
-        self.autoenc_output_conv = nn.ConvTranspose2d(4, 3, 2, stride=2, padding=0, output_padding=0, bias=True)
+        self.autoenc_output_conv = nn.ConvTranspose2d(8, 3, 2, stride=2, padding=0, output_padding=0, bias=True)
 
         if softmax_classes > 0:
             self.scalar_output_conv = SoftMaxConv(softmax_classes, late_dropout_prob)
         else:
-            self.scalar_output_conv = nn.ConvTranspose2d( 16, 1, 2, stride=2, padding=0, output_padding=0, bias=True)
+            self.scalar_output_conv = nn.ConvTranspose2d( 32, 1, 2, stride=2, padding=0, output_padding=0, bias=True)
 
 
     def forward(self, input):
