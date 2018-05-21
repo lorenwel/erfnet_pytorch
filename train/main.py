@@ -178,6 +178,18 @@ class L1LossMasked(torch.nn.Module):
     def forward(self, outputs, targets):
         return self.loss(outputs, targets).masked_select(torch.gt(targets, 0.0)).mean()
 
+class L1LossTraversability(torch.nn.Module):
+
+    def __init__(self):
+        super().__init__()
+        self.non_trav_weight = torch.autograd.Variable(torch.from_numpy(np.array([0.1], dtype="float32"))).cuda()
+
+        self.loss = torch.nn.L1Loss(False, False)
+
+    def forward(self, outputs, targets):
+        return (1-outputs[torch.gt(targets, 0.0)]).abs().mean() + (outputs[torch.gt(targets, 0.0)]).abs().mean()*self.non_trav_weight
+
+
 class L1Loss(torch.nn.Module):
 
     def __init__(self):
@@ -241,6 +253,8 @@ def train(args, model_student, model_teacher, enc=False):
     else:
         criterion = L1LossMasked()     
 
+    criterion_trav = L1LossTraversability()
+    criterion_autoenc = L1Loss()
     criterion_consistency = MSELossWeighted()
     criterion_val = L1LossMasked()     # L1 loss with averaging over mini-batch
     print(type(criterion))
@@ -348,6 +362,10 @@ def train(args, model_student, model_teacher, enc=False):
 
         epoch_loss_student = []
         epoch_loss_teacher = []
+        epoch_loss_trav_student = []
+        epoch_loss_trav_teacher = []
+        epoch_loss_autoenc_student = []
+        epoch_loss_autoenc_teacher = []
         epoch_loss_consistency = []
         time_train = []
         time_load = []
@@ -386,8 +404,8 @@ def train(args, model_student, model_teacher, enc=False):
             targets = Variable(labels)
             if (args.force_n_classes) > 0:
                 # Forced into discrete classes. 
-                output_student_prob, output_student_power = model_student(inputs1, only_encode=enc)
-                output_teacher_prob, output_teacher_power = model_teacher(inputs2, only_encode=enc)
+                output_student_prob, output_student_trav, output_student_autoenc, output_student_power = model_student(inputs1, only_encode=enc)
+                output_teacher_prob, output_teacher_trav, output_teacher_autoenc, output_teacher_power = model_teacher(inputs2, only_encode=enc)
                 if args.alternate_optimization:
                     if epoch % 2 == 0:
                         optimizer_power.zero_grad()
@@ -400,22 +418,30 @@ def train(args, model_student, model_teacher, enc=False):
                 loss_consistency = criterion_consistency(output_student_prob, output_teacher_prob, cur_consistency_weight)
             else:
                 # Straight regressoin
-                output_student = model_student(inputs1, only_encode=enc)
-                output_teacher = model_teacher(inputs2, only_encode=enc)
+                output_student, output_student_trav, output_student_autoenc = model_student(inputs1, only_encode=enc)
+                output_teacher, output_teacher_trav, output_teacher_autoenc = model_teacher(inputs2, only_encode=enc)
                 optimizer.zero_grad()
                 loss_student_pred = criterion(output_student, targets)
                 loss_teacher_pred = criterion(output_teacher, targets)
                 loss_consistency = criterion_consistency(output_student, output_teacher, cur_consistency_weight)
 
+            # Loss independent of how scalar value is determined
+            loss_student_trav = criterion_trav(output_student_trav, targets)
+            loss_teacher_trav = criterion_trav(output_teacher_trav, targets)
+            loss_student_autoenc = criterion_autoenc(output_student_autoenc, inputs1)
+            loss_teacher_autoenc = criterion_autoenc(output_teacher_autoenc, inputs2)
+
 
             #print("targets", np.unique(targets[:, 0].cpu().data.numpy()))
 
             # Do backward pass.
+            loss_student_pred.backward(retain_graph=True)
+            loss_student_trav.backward(retain_graph=True)
             if epoch>0 and not args.no_mean_teacher:
-                loss_student_pred.backward(retain_graph=True)
+                loss_student_autoenc.backward(retain_graph=True)
                 loss_consistency.backward()
             else: 
-                loss_student_pred.backward()
+                loss_student_autoenc.backward()
 
 
             if args.alternate_optimization:
@@ -437,6 +463,10 @@ def train(args, model_student, model_teacher, enc=False):
 
             epoch_loss_student.append(loss_student_pred.data[0])
             epoch_loss_teacher.append(loss_teacher_pred.data[0])
+            epoch_loss_trav_student.append(loss_student_trav.data[0])
+            epoch_loss_trav_teacher.append(loss_teacher_trav.data[0])
+            epoch_loss_autoenc_student.append(loss_student_autoenc.data[0])
+            epoch_loss_autoenc_teacher.append(loss_teacher_autoenc.data[0])
             epoch_loss_consistency.append(loss_consistency.data[0])
             time_train.append(time.time() - start_time)
 
@@ -474,6 +504,17 @@ def train(args, model_student, model_teacher, enc=False):
                         vis_output = output_student[0].cpu().data
                         vis_output_teacher = output_teacher[0].cpu().data
 
+                if (isinstance(output_teacher_trav, list)):
+                    trav_output = output_student_trav[0][0].cpu().data
+                    trav_output_teacher = output_teacher_trav[0][0].cpu().data
+                    autoenc_output = output_student_autoenc[0][0].cpu().data
+                    autoenc_output_teacher = output_teacher_autoenc[0][0].cpu().data
+                else:
+                    trav_output = output_student_trav[0].cpu().data
+                    trav_output_teacher = output_teacher_trav[0].cpu().data
+                    autoenc_output = output_student_autoenc[0].cpu().data
+                    autoenc_output_teacher = output_teacher_autoenc[0].cpu().data
+
                 start_time_plot = time.time()
                 image1 = inputs1[0].cpu().data
                 image2 = inputs2[0].cpu().data
@@ -482,6 +523,10 @@ def train(args, model_student, model_teacher, enc=False):
                 writer.add_image("train/1_input_teacher", image2, step_vis_no)
                 writer.add_image("train/5_output_student", color_transform_output(vis_output), step_vis_no)
                 writer.add_image("train/5_output_teacher", color_transform_output(vis_output_teacher), step_vis_no)
+                writer.add_image("train/7_output_trav_student", trav_output, step_vis_no)
+                writer.add_image("train/7_output_trav_teacher", trav_output_teacher, step_vis_no)
+                writer.add_image("train/7_output_autoenc_student", autoenc_output, step_vis_no)
+                writer.add_image("train/7_output_autoenc_teacher", autoenc_output_teacher, step_vis_no)
                 # board.image(color_transform_target(targets[0].cpu().data),
                 #     f'target (epoch: {epoch}, step: {step})')
                 writer.add_image("train/6_target", color_transform_target(targets[0].cpu().data), step_vis_no)
@@ -493,12 +538,24 @@ def train(args, model_student, model_teacher, enc=False):
             writer.add_scalar("train/instant_loss_student", val, total_steps_train + ind)
         for ind, val in enumerate(epoch_loss_teacher):
             writer.add_scalar("train/instant_loss_teacher", val, total_steps_train + ind)
+        for ind, val in enumerate(epoch_loss_trav_student):
+            writer.add_scalar("train/instant_loss_trav_student", val, total_steps_train + ind)
+        for ind, val in enumerate(epoch_loss_trav_teacher):
+            writer.add_scalar("train/instant_loss_trav_teacher", val, total_steps_train + ind)
+        for ind, val in enumerate(epoch_loss_autoenc_student):
+            writer.add_scalar("train/instant_loss_autoenc_student", val, total_steps_train + ind)
+        for ind, val in enumerate(epoch_loss_autoenc_teacher):
+            writer.add_scalar("train/instant_loss_autoenc_teacher", val, total_steps_train + ind)
         for ind, val in enumerate(epoch_loss_consistency):
             writer.add_scalar("train/instant_loss_consistency", val, total_steps_train + ind)
         total_steps_train += len_epoch_loss
         avg_loss_teacher = sum(epoch_loss_teacher)/len(epoch_loss_teacher)
         writer.add_scalar("train/epoch_loss_student", sum(epoch_loss_student)/len(epoch_loss_student), total_steps_train)
         writer.add_scalar("train/epoch_loss_teacher", avg_loss_teacher, total_steps_train)
+        writer.add_scalar("train/epoch_loss_trav_student", sum(epoch_loss_trav_student)/len(epoch_loss_trav_student), total_steps_train)
+        writer.add_scalar("train/epoch_loss_trav_teacher", sum(epoch_loss_trav_teacher)/len(epoch_loss_trav_teacher), total_steps_train)
+        writer.add_scalar("train/epoch_loss_autoenc_student", sum(epoch_loss_autoenc_student)/len(epoch_loss_autoenc_student), total_steps_train)
+        writer.add_scalar("train/epoch_loss_autoenc_teacher", sum(epoch_loss_autoenc_teacher)/len(epoch_loss_autoenc_teacher), total_steps_train)
         writer.add_scalar("train/epoch_loss_consistency", sum(epoch_loss_consistency)/len(epoch_loss_consistency), total_steps_train)
         # Clear loss for next loss print iteration.
         # Output class power costs
@@ -537,6 +594,10 @@ def train(args, model_student, model_teacher, enc=False):
         model_teacher.eval()
         epoch_loss_student_val = []
         epoch_loss_teacher_val = []
+        epoch_loss_trav_student_val = []
+        epoch_loss_trav_teacher_val = []
+        epoch_loss_autoenc_student_val = []
+        epoch_loss_autoenc_teacher_val = []
         time_val = []
 
 
@@ -552,21 +613,29 @@ def train(args, model_student, model_teacher, enc=False):
             targets = Variable(labels, volatile=True)
 
             if args.force_n_classes:
-                output_student_prob, output_student_power = model_student(inputs1, only_encode=enc) 
-                output_teacher_prob, output_teacher_power = model_teacher(inputs2, only_encode=enc) 
+                output_student_prob, output_student_trav, output_student_autoenc, output_student_power = model_student(inputs1, only_encode=enc) 
+                output_teacher_prob, output_teacher_trav, output_teacher_autoenc, output_teacher_power = model_teacher(inputs2, only_encode=enc) 
                 max_prob, output_student = getMaxProbValue(output_student_prob, output_student_power)
                 max_prob, output_teacher = getMaxProbValue(output_teacher_prob, output_teacher_power)
                 # Compute weighted power consumption
                 sum_dim = output_student_prob.dim()-3
                 weighted_sum_output = (output_student_prob * output_student_power).sum(dim=sum_dim, keepdim=True)
             else:
-                output_student = model_student(inputs1, only_encode=enc)
-                output_teacher = model_teacher(inputs2, only_encode=enc)
+                output_student, output_student_trav, output_student_autoenc = model_student(inputs1, only_encode=enc)
+                output_teacher, output_teacher_trav, output_teacher_autoenc = model_teacher(inputs2, only_encode=enc)
 
             loss_student = criterion_val(output_student, targets)
             loss_teacher = criterion_val(output_teacher, targets)
+            loss_student_trav = criterion_trav(output_student_trav, targets)
+            loss_teacher_trav = criterion_trav(output_teacher_trav, targets)
+            loss_student_autoenc = criterion_autoenc(output_student_trav, inputs1)
+            loss_teacher_autoenc = criterion_autoenc(output_teacher_trav, inputs2)
             epoch_loss_student_val.append(loss_student.data[0])
             epoch_loss_teacher_val.append(loss_teacher.data[0])
+            epoch_loss_trav_student_val.append(loss_student_trav.data[0])
+            epoch_loss_trav_teacher_val.append(loss_teacher_trav.data[0])
+            epoch_loss_autoenc_student_val.append(loss_student_autoenc.data[0])
+            epoch_loss_autoenc_teacher_val.append(loss_teacher_autoenc.data[0])
             time_val.append(time.time() - start_time)
 
 
@@ -578,6 +647,17 @@ def train(args, model_student, model_teacher, enc=False):
 
             # Plot images
             if args.visualize and step % steps_img_val == 0:
+                if (isinstance(output_teacher_trav, list)):
+                    trav_output = output_student_trav[0][0].cpu().data
+                    trav_output_teacher = output_teacher_trav[0][0].cpu().data
+                    autoenc_output = output_student_autoenc[0][0].cpu().data
+                    autoenc_output_teacher = output_teacher_autoenc[0][0].cpu().data
+                else:
+                    trav_output = output_student_trav[0].cpu().data
+                    trav_output_teacher = output_teacher_trav[0].cpu().data
+                    autoenc_output = output_student_autoenc[0].cpu().data
+                    autoenc_output_teacher = output_teacher_autoenc[0].cpu().data
+
                 step_vis_no = total_steps_val + len(epoch_loss_student_val)
                 start_time_plot = time.time()
                 image1 = inputs1[0].cpu().data
@@ -606,6 +686,10 @@ def train(args, model_student, model_teacher, enc=False):
                         writer.add_image("val/4_weighted_output", color_transform_output(weighted_sum_output[0].cpu().data), step_vis_no)
                 # board.image(color_transform_target(targets[0].cpu().data),
                 #     f'VAL target (epoch: {epoch}, step: {step})')
+                writer.add_image("val/7_output_trav_student", trav_output, step_vis_no)
+                writer.add_image("val/7_output_trav_teacher", trav_output_teacher, step_vis_no)
+                writer.add_image("val/7_output_autoenc_student", autoenc_output, step_vis_no)
+                writer.add_image("val/7_output_autoenc_teacher", autoenc_output_teacher, step_vis_no)
                 writer.add_image("val/6_target", color_transform_target(targets[0].cpu().data), step_vis_no)
                 print ("Time to paint images: ", time.time() - start_time_plot)
             # Plot histograms
@@ -626,6 +710,10 @@ def train(args, model_student, model_teacher, enc=False):
                 "// Avg time/img: %.4f s" % (sum(time_val) / len(time_val) / args.batch_size))
         writer.add_scalar("val/epoch_loss_student", sum(epoch_loss_student_val) / len(epoch_loss_student_val), total_steps_val)
         writer.add_scalar("val/epoch_loss_teacher", avg_loss_teacher_val, total_steps_val)
+        writer.add_scalar("val/epoch_loss_trav_student", sum(epoch_loss_trav_student_val) / len(epoch_loss_trav_student_val), total_steps_val)
+        writer.add_scalar("val/epoch_loss_trav_teacher", sum(epoch_loss_trav_teacher_val) / len(epoch_loss_trav_teacher_val), total_steps_val)
+        writer.add_scalar("val/epoch_loss_autoenc_student", sum(epoch_loss_autoenc_student_val) / len(epoch_loss_autoenc_student_val), total_steps_val)
+        writer.add_scalar("val/epoch_loss_autoenc_teacher", sum(epoch_loss_autoenc_teacher_val) / len(epoch_loss_autoenc_teacher_val), total_steps_val)
         epoch_loss_student_val = []
         epoch_loss_teacher_val = []
 
