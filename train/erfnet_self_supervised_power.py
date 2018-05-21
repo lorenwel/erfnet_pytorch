@@ -177,6 +177,7 @@ class Decoder (nn.Module):
 
         output_scalar = self.scalar_output_conv(torch.cat((output_scalar, output_trav, output_autoenc), dim=1))
         output_trav = self.trav_output_conv(torch.cat((output_trav, output_autoenc), dim=1))
+        output_trav = torch.nn.functional.sigmoid(output_trav)
         output_autoenc = self.autoenc_output_conv(output_autoenc)
 
         return output_scalar, output_trav, output_autoenc
