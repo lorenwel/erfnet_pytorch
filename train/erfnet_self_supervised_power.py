@@ -68,34 +68,40 @@ class Encoder(nn.Module):
         print("Using self-supervised encoder.")
         self.initial_block = DownsamplerBlock(3,16)
 
-        self.layers = nn.ModuleList()
+        self.block1 = nn.ModuleList()
+        self.block2 = nn.ModuleList()
 
-        self.layers.append(DownsamplerBlock(16,64))
+        self.block1.append(DownsamplerBlock(16,64))
 
         for x in range(0, 5):    #5 times
-           self.layers.append(non_bottleneck_1d(64, 0.03, 1)) 
+           self.block1.append(non_bottleneck_1d(64, 0.03, 1)) 
 
-        self.layers.append(DownsamplerBlock(64,128))
+        self.block2.append(DownsamplerBlock(64,128))
 
         for x in range(0, 2):    #2 times
-            self.layers.append(non_bottleneck_1d(128, 0.3, 2))
-            self.layers.append(non_bottleneck_1d(128, 0.3, 4))
-            self.layers.append(non_bottleneck_1d(128, 0.3, 8))
-            self.layers.append(non_bottleneck_1d(128, 0.3, 16))
+            self.block2.append(non_bottleneck_1d(128, 0.3, 2))
+            self.block2.append(non_bottleneck_1d(128, 0.3, 4))
+            self.block2.append(non_bottleneck_1d(128, 0.3, 8))
+            self.block2.append(non_bottleneck_1d(128, 0.3, 16))
 
         #Only in encoder mode:
         self.output_conv = nn.Conv2d(128, 1, 1, stride=1, padding=0, bias=True)
 
     def forward(self, input, predict=False):
-        output = self.initial_block(input)
+        output1 = self.initial_block(input)
 
-        for layer in self.layers:
-            output = layer(output)
+        output2 = output1
+        for layer in self.block1:
+            output2 = layer(output2)
+
+        output3 = output2    
+        for layer in self.block1:
+            output3 = layer(output3)
 
         if predict:
-            output = self.output_conv(output)
+            return self.output_conv(output3)
 
-        return output
+        return output1, output2, output3
 
 
 class UpsamplerBlock (nn.Module):
