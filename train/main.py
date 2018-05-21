@@ -187,7 +187,7 @@ class L1LossTraversability(torch.nn.Module):
         self.loss = torch.nn.L1Loss(False, False)
 
     def forward(self, outputs, targets):
-        return (1-outputs[torch.gt(targets, 0.0)]).abs().mean() + (outputs[torch.gt(targets, 0.0)]).abs().mean()*self.non_trav_weight
+        return (1-outputs[torch.gt(targets, 0.0)]).abs().mean() + (outputs[torch.le(targets, 0.0)]).abs().mean()*self.non_trav_weight
 
 
 class L1Loss(torch.nn.Module):
