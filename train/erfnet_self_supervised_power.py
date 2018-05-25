@@ -95,7 +95,7 @@ class Encoder(nn.Module):
             output2 = layer(output2)
 
         output3 = output2    
-        for layer in self.block1:
+        for layer in self.block2:
             output3 = layer(output3)
 
         if predict:
@@ -118,7 +118,7 @@ class UpsamplerBlock (nn.Module):
 class LadderBlock(nn.Module):
     def __init__(self, noutput):
         super().__init__()
-        self.conv = nn.Conv2d(2*n_output, noutput, 3, stride=1, padding=1, bias=True)
+        self.conv = nn.Conv2d(2*noutput, noutput, 3, stride=1, padding=1, bias=True)
         self.bn = nn.BatchNorm2d(noutput, eps=1e-3)
 
     def forward(self, input, input_ladder):
@@ -166,11 +166,11 @@ class Decoder (nn.Module):
     def __init__(self, softmax_classes, late_dropout_prob):
         super().__init__()
 
-        self.scalar_decoder_1 = DecoderBlock(128, 40)
-        self.scalar_decoder_2 = DecoderBlock(64, 10)
+        self.scalar_decoder_1 = DecoderBlock(128, 64)
+        self.scalar_decoder_2 = DecoderBlock(128, 16)
 
-        self.trav_decoder_1 = DecoderBlock(128, 24)
-        self.trav_decoder_2 = DecoderBlock(32, 6)
+        self.trav_decoder_1 = DecoderBlock(128, 64)
+        self.trav_decoder_2 = DecoderBlock(64, 16)
 
         self.trav_output_conv = nn.ConvTranspose2d(16, 1, 2, stride=2, padding=0, output_padding=0, bias=True)
 
