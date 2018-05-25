@@ -115,6 +115,17 @@ class UpsamplerBlock (nn.Module):
         output = self.bn(output)
         return F.relu(output)
 
+class LadderBlock(nn.Module):
+    def __init__(self, noutput):
+        super().__init__()
+        self.conv = nn.Conv2d(2*n_output, noutput, 3, stride=1, padding=1, bias=True)
+        self.bn = nn.BatchNorm2d(noutput, eps=1e-3)
+
+    def forward(self, input, input_ladder):
+        output = self.conv(torch.cat((input, input_ladder), dim=1))
+        output = self.bn(output)
+        return F.relu(output)
+
 class SoftMaxConv (nn.Module):
     def __init__(self, softmax_classes, late_dropout_prob):
         super().__init__()
@@ -141,30 +152,27 @@ class DecoderBlock (nn.Module):
         self.layers.append(non_bottleneck_1d(out_channels, 0, 1))
         self.layers.append(non_bottleneck_1d(out_channels, 0, 1))
 
-    def forward(self, input):
+        self.ladder_block = LadderBlock(out_channels)
+
+    def forward(self, input, input_ladder):
         output = input
 
         for layer in self.layers:
             output = layer(output)
 
-        return output
+        return self.ladder_block(output, input_ladder)
 
 class Decoder (nn.Module):
     def __init__(self, softmax_classes, late_dropout_prob):
         super().__init__()
 
-        self.scalar_decoder_1 = DecoderBlock(128, 64)
-        self.scalar_decoder_2 = DecoderBlock(128, 16)
+        self.scalar_decoder_1 = DecoderBlock(128, 40)
+        self.scalar_decoder_2 = DecoderBlock(64, 10)
 
-        self.trav_decoder_1 = DecoderBlock(128, 32)
-        self.trav_decoder_2 = DecoderBlock(64, 8)
-
-        self.autoenc_decoder_1 = DecoderBlock(128, 32)
-        self.autoenc_decoder_2 = DecoderBlock(32, 8)
+        self.trav_decoder_1 = DecoderBlock(128, 24)
+        self.trav_decoder_2 = DecoderBlock(32, 6)
 
         self.trav_output_conv = nn.ConvTranspose2d(16, 1, 2, stride=2, padding=0, output_padding=0, bias=True)
-
-        self.autoenc_output_conv = nn.ConvTranspose2d(8, 3, 2, stride=2, padding=0, output_padding=0, bias=True)
 
         if softmax_classes > 0:
             self.scalar_output_conv = SoftMaxConv(softmax_classes, late_dropout_prob)
@@ -172,21 +180,17 @@ class Decoder (nn.Module):
             self.scalar_output_conv = nn.ConvTranspose2d( 32, 1, 2, stride=2, padding=0, output_padding=0, bias=True)
 
 
-    def forward(self, input):
-        output_scalar = self.scalar_decoder_1(input)
-        output_trav = self.trav_decoder_1(input)
-        output_autoenc = self.autoenc_decoder_1(input)
+    def forward(self, enc1, enc2, enc3):
+        output_scalar = self.scalar_decoder_1(enc3, enc2)
+        output_trav = self.trav_decoder_1(enc3, enc2)
 
-        output_scalar = self.scalar_decoder_2(torch.cat((output_scalar, output_trav, output_autoenc), dim=1))
-        output_trav = self.trav_decoder_2(torch.cat((output_trav, output_autoenc), dim=1))
-        output_autoenc = self.autoenc_decoder_2(output_autoenc)
+        output_scalar = self.scalar_decoder_2(torch.cat((output_scalar, output_trav), dim=1), enc1)
+        output_trav = self.trav_decoder_2(output_trav, enc1)
 
-        output_scalar = self.scalar_output_conv(torch.cat((output_scalar, output_trav, output_autoenc), dim=1))
-        output_trav = self.trav_output_conv(torch.cat((output_trav, output_autoenc), dim=1))
-        output_trav = torch.nn.functional.sigmoid(output_trav)
-        output_autoenc = self.autoenc_output_conv(output_autoenc)
+        output_scalar = self.scalar_output_conv(torch.cat((output_scalar, output_trav), dim=1))
+        output_trav = self.trav_output_conv(output_trav)
 
-        return output_scalar, output_trav, output_autoenc
+        return output_scalar, output_trav
 
 #ERFNet
 class Net(nn.Module):
@@ -227,9 +231,9 @@ class Net(nn.Module):
         if only_encode:
             return self.encoder.forward(input, predict=True)
         else:
-            output = self.encoder(input)    #predict=False by default
-            output_scalar, output_trav, output_autoenc = self.decoder.forward(output)
+            enc1, enc2, enc3 = self.encoder(input)    #predict=False by default
+            output_scalar, output_trav = self.decoder.forward(enc1, enc2, enc3)
             if self.softmax_classes > 0:
-                return output_scalar, output_trav, output_autoenc, self.class_power
+                return output_scalar, output_trav, self.class_power
             else:
-                return output_scalar, output_trav, output_autoenc
+                return output_scalar, output_trav
