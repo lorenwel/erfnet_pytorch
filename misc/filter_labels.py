@@ -45,13 +45,22 @@ def func(i, filenameGt, filenames, file_root, output_dir, file_format):
         print("Unsupported file format " + file_format)
 
     if (cur_file > 0.0).any():
-        os.symlink(os.path.join(file_root, filenameGt), os.path.join(output_dir, image_basename(filenameGt)))
-        os.symlink(os.path.join(file_root, filenames[i]), os.path.join(output_dir, image_basename(filenames[i])))
+        file_ending = os.path.relpath(filenames[i], file_root)
+        fileGt_ending = os.path.relpath(filenameGt, file_root)
+
+        filename_out = os.path.join(output_dir, file_ending)
+        file_out_dir = os.path.dirname(filename_out)
+
+        if not os.path.exists(file_out_dir):
+            os.makedirs(file_out_dir)
+
+        os.symlink(os.path.join(file_root, filenameGt), filename_out)
+        os.symlink(os.path.join(file_root, filenames[i]), os.path.join(output_dir, fileGt_ending))
 
 
 if __name__ == '__main__':
-    file_root = "/mnt/drive_c/datasets/beth_bags/labelled/"
-    output_dir = "/mnt/drive_c/datasets/beth_bags/filtered/"
+    file_root = "/mnt/drive_c/datasets/2018_dataset/labelled/"
+    output_dir = "/mnt/drive_c/datasets/2018_dataset/filtered_labelled/"
 
     file_format = "csv"
 

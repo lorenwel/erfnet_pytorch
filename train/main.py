@@ -206,9 +206,11 @@ class MSELossWeighted(torch.nn.Module):
         super().__init__()
 
         self.loss = torch.nn.MSELoss(False, False)
+        self.weight = torch.autograd.Variable(torch.Tensor([0.0])).cuda()
 
     def forward(self, outputs, targets, weight):
-        return (self.loss(outputs, targets) * weight).mean()
+        self.weight.fill_(weight)
+        return (self.loss(outputs, targets) * self.weight).mean()
 
 def copyWeightsToModelNoGrad(model_source, model_target):
     for source, target in zip(model_source.parameters(), model_target.parameters()):
@@ -286,13 +288,6 @@ def train(args, model_student, model_teacher, enc=False):
         optimizer_power = Adam(params_power, LEARNING_RATE, BETAS,  eps=OPT_EPS, weight_decay=WEIGHT_DECAY)
 
     start_epoch = 1
-
-    if args.pretrained:
-        pretrained = torch.load(args.pretrained)
-        model_student.load_state_dict(pretrained)
-        model_teacher.load_state_dict(pretrained)
-        print("Loaded pretrained model")
-        start_epoch = 1
 
     if args.resume:
         #Must load weights, optimizer, epoch and best value. 
@@ -397,7 +392,7 @@ def train(args, model_student, model_teacher, enc=False):
                 labels = labels.cuda()
 
             inputs1 = Variable(images1)
-            inputs2 = Variable(images2, volatile=True)
+            inputs2 = Variable(images2)
             targets = Variable(labels)
             if (args.force_n_classes) > 0:
                 # Forced into discrete classes. 
@@ -412,6 +407,7 @@ def train(args, model_student, model_teacher, enc=False):
                     optimizer.zero_grad()
                 loss_student_pred = criterion(output_student_prob, output_student_power, targets)
                 loss_teacher_pred = criterion(output_teacher_prob, output_teacher_power, targets)
+                print(type(output_student_power))
                 loss_consistency = criterion_consistency(output_student_prob, output_teacher_prob, cur_consistency_weight)
             else:
                 # Straight regressoin
@@ -455,11 +451,11 @@ def train(args, model_student, model_teacher, enc=False):
 
             # copyWeightsToModelWithDiscount(model_student, model_teacher, DISCOUNT_RATE)
 
-            epoch_loss_student.append(loss_student_pred.data[0])
-            epoch_loss_teacher.append(loss_teacher_pred.data[0])
+            epoch_loss_student.append(loss_student_pred.data.item())
+            epoch_loss_teacher.append(loss_teacher_pred.data.item())
             epoch_loss_trav_student.append(loss_student_trav.data[0])
             epoch_loss_trav_teacher.append(loss_teacher_trav.data[0])
-            epoch_loss_consistency.append(loss_consistency.data[0])
+            epoch_loss_consistency.append(loss_consistency.data.item())
             time_train.append(time.time() - start_time)
 
             # if (doIouTrain):
@@ -516,7 +512,11 @@ def train(args, model_student, model_teacher, enc=False):
                 # board.image(color_transform_target(targets[0].cpu().data),
                 #     f'target (epoch: {epoch}, step: {step})')
                 writer.add_image("train/6_target", color_transform_target(targets[0].cpu().data), step_vis_no)
-                print ("Time to paint images: ", time.time() - start_time_plot)
+
+                # Visualize graph.
+                writer.add_graph(model_teacher, inputs2)
+
+                print ("Time for visualization: ", time.time() - start_time_plot)
                 
 
         len_epoch_loss = len(epoch_loss_student)
@@ -836,14 +836,25 @@ def main(args):
                 pretrainedEnc = pretrainedEnc.cpu()     #because loaded encoder is probably saved in cuda
         else:
             pretrainedEnc = next(model_student.children()).encoder
-        model_student = model_file.Net( encoder=pretrainedEnc, softmax_classes=args.force_n_classes, spread_class_power=args.spread_init, fix_class_power=args.fix_class_power, late_dropout_prob=args.late_dropout_prob)  #Add decoder to encoder
-        model_teacher = model_file.Net( encoder=pretrainedEnc, softmax_classes=args.force_n_classes, spread_class_power=args.spread_init, fix_class_power=args.fix_class_power, late_dropout_prob=args.late_dropout_prob)  #Add decoder to encoder
+            model_student = model_file.Net( encoder=pretrainedEnc, softmax_classes=args.force_n_classes, spread_class_power=args.spread_init, fix_class_power=args.fix_class_power, late_dropout_prob=args.late_dropout_prob)  #Add decoder to encoder
+            model_teacher = model_file.Net( encoder=pretrainedEnc, softmax_classes=args.force_n_classes, spread_class_power=args.spread_init, fix_class_power=args.fix_class_power, late_dropout_prob=args.late_dropout_prob)  #Add decoder to encoder
+
         if args.cuda:
             def make_cuda(model):
                 return torch.nn.DataParallel(model).cuda()
 
             model_student = make_cuda(model_student)
             model_teacher = make_cuda(model_teacher)
+
+        if args.pretrained:
+            pretrained = torch.load(args.pretrained)['state_dict']
+            model_student.load_state_dict(pretrained)
+            model_teacher.load_state_dict(pretrained)
+            print("Loaded pretrained model")
+
+        if args.fix_class_power:
+            model_student.module.update_fixed_class_power()
+            model_teacher.module.update_fixed_class_power()
         #When loading encoder reinitialize weights for decoder because they are set to 0 when training dec
     model_student, model_teacher = train(args, model_student, model_teacher, False)   #Train decoder
     print("========== TRAINING FINISHED ===========")
