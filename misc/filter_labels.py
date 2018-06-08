@@ -54,8 +54,8 @@ def func(i, filenameGt, filenames, file_root, output_dir, file_format):
         if not os.path.exists(file_out_dir):
             os.makedirs(file_out_dir)
 
-        os.symlink(os.path.join(file_root, filenameGt), filename_out)
-        os.symlink(os.path.join(file_root, filenames[i]), os.path.join(output_dir, fileGt_ending))
+        os.symlink(os.path.join(file_root, filenameGt), os.path.join(output_dir, fileGt_ending))
+        os.symlink(os.path.join(file_root, filenames[i]), filename_out)
 
 
 if __name__ == '__main__':

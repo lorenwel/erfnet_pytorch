@@ -118,11 +118,14 @@ class UpsamplerBlock (nn.Module):
 class LadderBlock(nn.Module):
     def __init__(self, noutput):
         super().__init__()
+        self.layer = non_bottleneck_1d(2*noutput, 0.03, 1)
         self.conv = nn.Conv2d(2*noutput, noutput, 3, stride=1, padding=1, bias=True)
         self.bn = nn.BatchNorm2d(noutput, eps=1e-3)
 
     def forward(self, input, input_ladder):
-        output = self.conv(torch.cat((input, input_ladder), dim=1))
+        output = torch.cat((input, input_ladder), dim=1)
+        output = self.layer(output)
+        output = self.conv(output)
         output = self.bn(output)
         return F.relu(output)
 
@@ -174,10 +177,7 @@ class Decoder (nn.Module):
 
         self.trav_output_conv = nn.ConvTranspose2d(16, 1, 2, stride=2, padding=0, output_padding=0, bias=True)
 
-        if softmax_classes > 0:
-            self.scalar_output_conv = SoftMaxConv(softmax_classes, late_dropout_prob)
-        else:
-            self.scalar_output_conv = nn.ConvTranspose2d( 32, 1, 2, stride=2, padding=0, output_padding=0, bias=True)
+        self.scalar_output_conv = nn.ConvTranspose2d( 32, softmax_classes, 2, stride=2, padding=0, output_padding=0, bias=True)
 
 
     def forward(self, enc1, enc2, enc3):

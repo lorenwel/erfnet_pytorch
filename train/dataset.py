@@ -9,7 +9,7 @@ from numpy import genfromtxt, count_nonzero
 
 from torch.utils.data import Dataset
 from torchvision.transforms import ToTensor
-from transform import ToFloatLabel
+from transform import ToFloatLabel, ToLabel
 
 EXTENSIONS = ['.jpg', '.png']
 
@@ -25,8 +25,8 @@ def is_label(filename):
 def is_self_supervised_image(filename):
     return filename.endswith("_img.bmp")
 
-def is_self_supervised_label(filename, ext="npy"):
-    return filename.endswith("_label_0." + ext)
+def is_self_supervised_label(filename, ext="npy", label_name="0"):
+    return filename.endswith("_label_" + label_name + "." + ext)
 
 def image_path(root, basename, extension):
     return os.path.join(root, f'{basename}{extension}')
@@ -44,19 +44,21 @@ def split_first_subname(filename, delim='_'):
 
 class self_supervised_power(Dataset):
 
-    def __init__(self, root, co_transform, subset='train', file_format="npy", subsample=1):
+    def __init__(self, root, co_transform, subset='train', file_format="npy", label_name="0", subsample=1):
         self.images_root = os.path.join(root, subset)
         self.labels_root = os.path.join(root, subset)
         self.file_format = file_format
+        self.label_name = label_name
         
         print ("Image root is: " + self.images_root)
         print ("Label root is: " + self.labels_root)
         print ("Load files with extension: " + self.file_format)
+        print ("Load labels with name: " + self.label_name)
         if subsample > 1:
             print("Using every ", subsample, "th image")
 
 
-        filenamesGt = [os.path.join(dp, f) for dp, dn, fn in os.walk(os.path.expanduser(self.images_root), followlinks=True) for f in fn if is_self_supervised_label(f, self.file_format)]
+        filenamesGt = [os.path.join(dp, f) for dp, dn, fn in os.walk(os.path.expanduser(self.images_root), followlinks=True) for f in fn if is_self_supervised_label(f, ext=self.file_format, label_name=self.label_name)]
         filenamesGt.sort()
 
         filenamesGt = [val for ind, val in enumerate(filenamesGt) if ind % subsample == 0] # Subsample.
@@ -95,6 +97,7 @@ class self_supervised_power(Dataset):
         else:
             print("Unsupported file format " + self.file_format)
 
+        # label_array[label_array == 0] = -2
         label = Image.fromarray(label_array, 'F')
 
         # print ("Float " + filenameGt)
@@ -117,9 +120,10 @@ class self_supervised_power(Dataset):
         # Convert to tensor
         image1 = ToTensor()(image1)
         image2 = ToTensor()(image2)
-        label = ToFloatLabel()(label)
+        label = ToLabel()(label)
         # Remove 0.0 image regions from transform padding
-        label[label == 0.0] = -1.0
+        # label[label == 0] = -1
+        # label[label == -2] = 0
 
 
         # print ("Label is type " + label.type())
@@ -130,7 +134,7 @@ class self_supervised_power(Dataset):
 
         # Sanitize labels. 
         if self.file_format == "csv":
-            label[label != label] = -1.0
+            label[label != label] = -1
 
         n_nan = np.count_nonzero(np.isnan(label.numpy()))
         if n_nan > 0:

@@ -407,7 +407,6 @@ def train(args, model_student, model_teacher, enc=False):
                     optimizer.zero_grad()
                 loss_student_pred = criterion(output_student_prob, output_student_power, targets)
                 loss_teacher_pred = criterion(output_teacher_prob, output_teacher_power, targets)
-                print(type(output_student_power))
                 loss_consistency = criterion_consistency(output_student_prob, output_teacher_prob, cur_consistency_weight)
             else:
                 # Straight regressoin
