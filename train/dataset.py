@@ -140,6 +140,9 @@ class self_supervised_power(Dataset):
         if n_nan > 0:
             print("File " + filenameGt + " produces nan " + str(n_nan))
 
+        image1 = image1 - 0.5
+        image2 = image2 - 0.5
+
         return image1, image2, label
 
     def __len__(self):

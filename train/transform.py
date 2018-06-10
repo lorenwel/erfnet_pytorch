@@ -33,18 +33,20 @@ def colormap_cityscapes(n):
 
 def colormap_self_supervised(n):
     cmap = np.zeros([n, 3]).astype(np.uint8)
-    cmap[0,:] = np.array([165, 165, 165]) # Asphalt
-    cmap[1,:] = np.array([ 50, 170,  37]) # Grass
-    cmap[2,:] = np.array([206,  96, 66]) # Gravel
-    cmap[3,:] = np.array([ 40,  80, 168])    # Dirt
-    cmap[4,:] = np.array([ 48, 244, 235])    # Sand
-    cmap[5,:] = np.array([ 40,   9, 193])    # Path
+    # BGR
     # cmap[0,:] = np.array([165, 165, 165]) # Asphalt
-    # cmap[1,:] = np.array([ 37, 170,  50]) # Grass
-    # cmap[2,:] = np.array([ 66,  96, 206]) # Gravel
-    # cmap[3,:] = np.array([168,  80,  40])    # Dirt
-    # cmap[4,:] = np.array([235, 244,  48])    # Sand
-    # cmap[5,:] = np.array([193,   9,  40])    # Path
+    # cmap[1,:] = np.array([ 50, 170,  37]) # Grass
+    # cmap[2,:] = np.array([206,  96,  66]) # Gravel
+    # cmap[3,:] = np.array([ 31,  66, 142])    # Dirt
+    # cmap[4,:] = np.array([ 48, 244, 235])    # Sand
+    # cmap[5,:] = np.array([ 40,   9, 193])    # Path
+    # RGB
+    cmap[0,:] = np.array([165, 165, 165]) # Asphalt
+    cmap[1,:] = np.array([ 37, 170,  50]) # Grass
+    cmap[2,:] = np.array([ 66,  96, 206]) # Gravel
+    cmap[3,:] = np.array([142,  66,  31])    # Dirt
+    cmap[4,:] = np.array([235, 244,  48])    # Sand
+    cmap[5,:] = np.array([193,   9,  40])    # Path
     return cmap
 
 def colormap(n):
@@ -202,14 +204,14 @@ class ColorizeClassesProb:
 
     def __init__(self, n=22):
         self.cmap = colormap_self_supervised(n)
-        # self.cmap = colormap_cityscapes(256)
-        self.cmap = torch.from_numpy(self.cmap[:n])
+        self.cmap = self.cmap.astype(float)
+        self.cmap = self.cmap / 255.0
 
     def __call__(self, prob):
         dump, gray_image = prob.max(dim=0, keepdim=True)
         size = gray_image.size()
         #print(size)
-        color_image = torch.ByteTensor(3, size[1], size[2]).fill_(0)
+        color_image = torch.FloatTensor(3, size[1], size[2]).fill_(0)
         #color_image = torch.ByteTensor(3, size[0], size[1]).fill_(0)
 
         #for label in range(1, len(self.cmap)):
@@ -230,13 +232,15 @@ class ColorizeClasses:
 
     def __init__(self, n=22):
         self.cmap = colormap_self_supervised(n)
+        self.cmap = self.cmap.astype(float)
+        self.cmap = self.cmap / 255.0
         # self.cmap = colormap_cityscapes(256)
-        self.cmap = torch.from_numpy(self.cmap[:n])
+        # self.cmap = torch.from_numpy(self.cmap[:n])
 
     def __call__(self, gray_image):
         size = gray_image.size()
         #print(size)
-        color_image = torch.ByteTensor(3, size[1], size[2]).fill_(0)
+        color_image = torch.FloatTensor(3, size[1], size[2]).fill_(0)
         #color_image = torch.ByteTensor(3, size[0], size[1]).fill_(0)
 
         #for label in range(1, len(self.cmap)):
