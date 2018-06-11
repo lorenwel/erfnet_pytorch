@@ -62,13 +62,6 @@ class self_supervised_power(Dataset):
         filenamesGt.sort()
 
         filenamesGt = [val for ind, val in enumerate(filenamesGt) if ind % subsample == 0] # Subsample.
-        # print("Filtering empty labels.")
-        # if self.file_format == "npy":
-        #     filenamesGt = [val for val in filenamesGt if (np.load(image_path_city(self.labels_root, val)) > 0.0).any()] # Remove label images without label.
-        # elif self.file_format == "csv":
-        #     filenamesGt = [val for val in filenamesGt if (genfromtxt(image_path_city(self.labels_root, val), delimiter=',', dtype="float32") > 0.0).any()] # Remove label images without label.
-        # else:
-        #     print("Unsupported file format " + self.file_format)
 
         self.filenamesGt = filenamesGt
         base_filenames = [split_first_subname(image_basename(val)) for val in self.filenamesGt]
@@ -100,17 +93,6 @@ class self_supervised_power(Dataset):
         # label_array[label_array == 0] = -2
         label = Image.fromarray(label_array, 'F')
 
-        # print ("Float " + filenameGt)
-        # print (count_nonzero(label_array == -1.0))
-
-        # print (list(label_img.getdata()).count(-1.0))
-
-        # label_tensor = torch.from_numpy(np.array(label_img))
-        # print ("Label tensor is type " + label_tensor.type())
-        # print ("Number of zero elements: " + str(torch.eq(label_tensor, 0).sum()))
-        # print ("Number of negative elements: " + str(torch.lt(label_tensor, 0).sum()))
-        # print ("Number of positive elements: " + str(torch.gt(label_tensor, 0).sum()))
-
         # Image transformation which is also expected to return a tensor. 
         if self.co_transform is not None:
             image1, image2, label = self.co_transform(image, label)
@@ -125,13 +107,6 @@ class self_supervised_power(Dataset):
         # label[label == 0] = -1
         # label[label == -2] = 0
 
-
-        # print ("Label is type " + label.type())
-        # print ("Number of zero elements: " + str(torch.eq(label, 0).sum()))
-        # print ("Number of negative elements: " + str(torch.lt(label, 0).sum()))
-        # print ("Number of positive elements: " + str(torch.gt(label, 0).sum()))
-        # print (label[torch.lt(label, 0)])
-
         # Sanitize labels. 
         if self.file_format == "csv":
             label[label != label] = -1
@@ -139,9 +114,6 @@ class self_supervised_power(Dataset):
         n_nan = np.count_nonzero(np.isnan(label.numpy()))
         if n_nan > 0:
             print("File " + filenameGt + " produces nan " + str(n_nan))
-
-        image1 = image1 - 0.5
-        image2 = image2 - 0.5
 
         return image1, image2, label
 

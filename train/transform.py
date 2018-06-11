@@ -108,11 +108,9 @@ def getColorImageFromMinMax(gray_image, min_val, max_val, factor_val = None, ext
     mask = (torch.lt(gray_image, max_val) & torch.gt(gray_image, min_val)).squeeze()
     # Color pixels greater than max_val green.
     mask_ge_max = torch.ge(gray_image, max_val).squeeze()
-    # color_image[0][mask_ge_max] = white_val
     color_image[0].masked_fill_(mask_ge_max, white_val)
     # Color pixels less than min_val green.
     mask_le_min = torch.le(gray_image, min_val).squeeze()
-    # color_image[1][mask_le_min] = white_val
     color_image[1].masked_fill_(mask_le_min, white_val)
     # Compute pixel values in interval. 
     # TODO: This might be slow. 
@@ -200,48 +198,16 @@ class ColorizeWithProb:
 
 
 
-class ColorizeClassesProb:
-
-    def __init__(self, n=22):
-        self.cmap = colormap_self_supervised(n)
-        self.cmap = self.cmap.astype(float)
-        self.cmap = self.cmap / 255.0
-
-    def __call__(self, prob):
-        dump, gray_image = prob.max(dim=0, keepdim=True)
-        size = gray_image.size()
-        #print(size)
-        color_image = torch.FloatTensor(3, size[1], size[2]).fill_(0)
-        #color_image = torch.ByteTensor(3, size[0], size[1]).fill_(0)
-
-        #for label in range(1, len(self.cmap)):
-        for label in range(0, len(self.cmap)):
-            mask = gray_image[0] == label
-            #mask = gray_image == label
-
-            color_image[0].masked_fill_(mask, self.cmap[label][0])
-            color_image[1].masked_fill_(mask, self.cmap[label][1])
-            color_image[2].masked_fill_(mask, self.cmap[label][2])
-
-        return color_image
-
-
-
-
 class ColorizeClasses:
 
     def __init__(self, n=22):
         self.cmap = colormap_self_supervised(n)
         self.cmap = self.cmap.astype(float)
         self.cmap = self.cmap / 255.0
-        # self.cmap = colormap_cityscapes(256)
-        # self.cmap = torch.from_numpy(self.cmap[:n])
 
     def __call__(self, gray_image):
         size = gray_image.size()
-        #print(size)
         color_image = torch.FloatTensor(3, size[1], size[2]).fill_(0)
-        #color_image = torch.ByteTensor(3, size[0], size[1]).fill_(0)
 
         #for label in range(1, len(self.cmap)):
         for label in range(0, len(self.cmap)):
@@ -253,3 +219,17 @@ class ColorizeClasses:
             color_image[2].masked_fill_(mask, self.cmap[label][2])
 
         return color_image
+
+
+
+
+class ColorizeClassesProb(ColorizeClasses):
+
+    def __init__(self, n=22):
+        super().__init__(n)
+
+    def __call__(self, prob):
+        prob = torch.nn.functional.softmax(prob,dim=1)
+        gray_image = prob.argmax(dim=0, keepdim=True)
+        
+        return super().__call__(gray_image)

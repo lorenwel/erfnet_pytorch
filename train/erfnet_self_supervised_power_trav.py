@@ -170,19 +170,28 @@ class Decoder (nn.Module):
         super().__init__()
 
         self.scalar_decoder_1 = DecoderBlock(128, 64)
-        self.scalar_decoder_2 = DecoderBlock(64, 16)
+        self.scalar_decoder_2 = DecoderBlock(128, 16)
 
-        self.scalar_output_conv = nn.ConvTranspose2d( 16, softmax_classes, 2, stride=2, padding=0, output_padding=0, bias=True)
+        self.trav_decoder_1 = DecoderBlock(128, 64)
+        self.trav_decoder_2 = DecoderBlock(64, 16)
+
+        self.trav_output_conv = nn.ConvTranspose2d(16, 1, 2, stride=2, padding=0, output_padding=0, bias=True)
+
+        self.scalar_output_conv = nn.ConvTranspose2d( 32, softmax_classes, 2, stride=2, padding=0, output_padding=0, bias=True)
 
 
     def forward(self, enc1, enc2, enc3):
         output_scalar = self.scalar_decoder_1(enc3, enc2)
+        output_trav = self.trav_decoder_1(enc3, enc2)
 
-        output_scalar = self.scalar_decoder_2(output_scalar, enc1)
+        output_scalar = self.scalar_decoder_2(torch.cat((output_scalar, output_trav), dim=1), enc1)
+        output_trav = self.trav_decoder_2(output_trav, enc1)
 
-        output_scalar = self.scalar_output_conv(output_scalar)
+        output_scalar = self.scalar_output_conv(torch.cat((output_scalar, output_trav), dim=1))
+        output_trav = self.trav_output_conv(output_trav)
+        output_trav = torch.nn.functional.sigmoid(output_trav)
 
-        return output_scalar
+        return output_scalar, output_trav
 
 #ERFNet
 class Net(nn.Module):
@@ -224,8 +233,8 @@ class Net(nn.Module):
             return self.encoder.forward(input, predict=True)
         else:
             enc1, enc2, enc3 = self.encoder(input)    #predict=False by default
-            output_scalar = self.decoder.forward(enc1, enc2, enc3)
+            output_scalar, output_trav = self.decoder.forward(enc1, enc2, enc3)
             if self.softmax_classes > 0:
-                return output_scalar, self.class_power
+                return output_scalar, output_trav, self.class_power
             else:
-                return output_scalar
+                return output_scalar, output_trav
