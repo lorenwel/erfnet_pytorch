@@ -642,15 +642,15 @@ def train(args, model_student, model_teacher, enc=False):
             loss_teacher = criterion_val(output_teacher_prob, targets)
             loss_student_trav = criterion_trav(output_student_trav, targets)
             loss_teacher_trav = criterion_trav(output_teacher_trav, targets)
-            epoch_loss_student_val.append(loss_student.data[0])
-            epoch_loss_teacher_val.append(loss_teacher.data[0])
+            epoch_loss_student_val.append(loss_student.data.item())
+            epoch_loss_teacher_val.append(loss_teacher.data.item())
             epoch_loss_trav_student_val.append(loss_student_trav.data[0])
             epoch_loss_trav_teacher_val.append(loss_teacher_trav.data[0])
             if args.force_n_classes:
                 acc_student = criterion_acc(output_student_prob, targets)
                 acc_teacher = criterion_acc(output_teacher_prob, targets)
-                epoch_acc_student_val.append(acc_student.data[0])
-                epoch_acc_teacher_val.append(acc_teacer.data[0])
+                epoch_acc_student_val.append(acc_student.data.item())
+                epoch_acc_teacher_val.append(acc_teacher.data.item())
             time_val.append(time.time() - start_time)
 
 
