@@ -186,7 +186,7 @@ class L1LossTraversability(torch.nn.Module):
 
     def __init__(self):
         super().__init__()
-        self.non_trav_weight = torch.autograd.Variable(torch.from_numpy(np.array([0.1], dtype="float32"))).cuda()
+        self.non_trav_weight = 0.1
 
         self.loss = torch.nn.L1Loss(False, False)
 
@@ -474,8 +474,8 @@ def train(args, model_student, model_teacher, enc=False):
 
             epoch_loss_student.append(loss_student_pred.data.item())
             epoch_loss_teacher.append(loss_teacher_pred.data.item())
-            epoch_loss_trav_student.append(loss_student_trav.data[0])
-            epoch_loss_trav_teacher.append(loss_teacher_trav.data[0])
+            epoch_loss_trav_student.append(loss_student_trav.data.item())
+            epoch_loss_trav_teacher.append(loss_teacher_trav.data.item())
             epoch_loss_consistency.append(loss_consistency.data.item())
             if (args.force_n_classes) > 0:
                 epoch_acc_student.append(acc_student.data.item())
@@ -531,8 +531,8 @@ def train(args, model_student, model_teacher, enc=False):
                 writer.add_image("train/1_input_teacher", image2, step_vis_no)
                 # writer.add_image("train/5_output_student", color_transform_output(vis_output), step_vis_no)
                 # writer.add_image("train/5_output_teacher", color_transform_output(vis_output_teacher), step_vis_no)
-                # writer.add_image("train/7_output_trav_student", trav_output, step_vis_no)
-                # writer.add_image("train/7_output_trav_teacher", trav_output_teacher, step_vis_no)
+                writer.add_image("train/7_output_trav_student", trav_output, step_vis_no)
+                writer.add_image("train/7_output_trav_teacher", trav_output_teacher, step_vis_no)
                 # board.image(color_transform_target(targets[0].cpu().data),
                 #     f'target (epoch: {epoch}, step: {step})')
                 writer.add_image("train/6_target", color_transform_classes(targets.cpu().data), step_vis_no)
@@ -579,6 +579,8 @@ def train(args, model_student, model_teacher, enc=False):
         epoch_loss_student = []
         epoch_loss_teacher = []
         epoch_loss_consistency = []
+        epoch_loss_trav_student = []
+        epoch_loss_trav_teacher = []
         epoch_acc_student = []
         epoch_acc_teacher = []
         # Print current loss. 
@@ -644,8 +646,8 @@ def train(args, model_student, model_teacher, enc=False):
             loss_teacher_trav = criterion_trav(output_teacher_trav, targets)
             epoch_loss_student_val.append(loss_student.data.item())
             epoch_loss_teacher_val.append(loss_teacher.data.item())
-            epoch_loss_trav_student_val.append(loss_student_trav.data[0])
-            epoch_loss_trav_teacher_val.append(loss_teacher_trav.data[0])
+            epoch_loss_trav_student_val.append(loss_student_trav.data.item())
+            epoch_loss_trav_teacher_val.append(loss_teacher_trav.data.item())
             if args.force_n_classes:
                 acc_student = criterion_acc(output_student_prob, targets)
                 acc_teacher = criterion_acc(output_teacher_prob, targets)
@@ -697,8 +699,8 @@ def train(args, model_student, model_teacher, enc=False):
                         # writer.add_image("val/4_weighted_output", color_transform_output(weighted_sum_output[0].cpu().data), step_vis_no)
                 # board.image(color_transform_target(targets[0].cpu().data),
                 #     f'VAL target (epoch: {epoch}, step: {step})')
-                # writer.add_image("val/7_output_trav_student", trav_output, step_vis_no)
-                # writer.add_image("val/7_output_trav_teacher", trav_output_teacher, step_vis_no)
+                writer.add_image("val/7_output_trav_student", trav_output, step_vis_no)
+                writer.add_image("val/7_output_trav_teacher", trav_output_teacher, step_vis_no)
                 writer.add_image("val/6_target", color_transform_classes(targets.cpu().data), step_vis_no)
                 print ("Time to paint images: ", time.time() - start_time_plot)
             # Plot histograms
@@ -736,6 +738,8 @@ def train(args, model_student, model_teacher, enc=False):
         epoch_loss_teacher_val = []
         epoch_acc_student_val = []
         epoch_acc_teacher_val = []
+        epoch_loss_trav_student_val = []
+        epoch_loss_trav_teacher_val = []
 
         average_epoch_loss_val = avg_loss_teacher_val
         #scheduler.step(average_epoch_loss_val, epoch)  ## scheduler 1   # update lr if needed
