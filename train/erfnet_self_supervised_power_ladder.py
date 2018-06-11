@@ -88,18 +88,20 @@ class Encoder(nn.Module):
         self.output_conv = nn.Conv2d(128, 1, 1, stride=1, padding=0, bias=True)
 
     def forward(self, input, predict=False):
-        output = self.initial_block(input)
+        output1 = self.initial_block(input)
 
+        output2 = output1
         for layer in self.block1:
-            output = layer(output)
+            output2 = layer(output2)
 
+        output3 = output2    
         for layer in self.block2:
-            output = layer(output)
+            output3 = layer(output3)
 
         if predict:
-            return self.output_conv(output)
+            return self.output_conv(output3)
 
-        return output
+        return output1, output2, output3
 
 
 class UpsamplerBlock (nn.Module):
@@ -110,6 +112,20 @@ class UpsamplerBlock (nn.Module):
 
     def forward(self, input):
         output = self.conv(input)
+        # output = self.bn(output)
+        return F.relu(output)
+
+class LadderBlock(nn.Module):
+    def __init__(self, noutput):
+        super().__init__()
+        self.layer = non_bottleneck_1d(2*noutput, 0.03, 1)
+        self.conv = nn.Conv2d(2*noutput, noutput, 3, stride=1, padding=1, bias=True)
+        # self.bn = nn.BatchNorm2d(noutput, eps=1e-3)
+
+    def forward(self, input, input_ladder):
+        output = torch.cat((input, input_ladder), dim=1)
+        output = self.layer(output)
+        output = self.conv(output)
         # output = self.bn(output)
         return F.relu(output)
 
@@ -139,13 +155,15 @@ class DecoderBlock (nn.Module):
         self.layers.append(non_bottleneck_1d(out_channels, 0, 1))
         self.layers.append(non_bottleneck_1d(out_channels, 0, 1))
 
-    def forward(self, input):
+        self.ladder_block = LadderBlock(out_channels)
+
+    def forward(self, input, input_ladder):
         output = input
 
         for layer in self.layers:
             output = layer(output)
 
-        return output
+        return self.ladder_block(output, input_ladder)
 
 class Decoder (nn.Module):
     def __init__(self, softmax_classes, late_dropout_prob):
@@ -157,10 +175,10 @@ class Decoder (nn.Module):
         self.scalar_output_conv = nn.ConvTranspose2d( 16, softmax_classes, 2, stride=2, padding=0, output_padding=0, bias=True)
 
 
-    def forward(self, input):
-        output_scalar = self.scalar_decoder_1(input)
+    def forward(self, enc1, enc2, enc3):
+        output_scalar = self.scalar_decoder_1(enc3, enc2)
 
-        output_scalar = self.scalar_decoder_2(output_scalar)
+        output_scalar = self.scalar_decoder_2(output_scalar, enc1)
 
         output_scalar = self.scalar_output_conv(output_scalar)
 
@@ -205,8 +223,8 @@ class Net(nn.Module):
         if only_encode:
             return self.encoder.forward(input, predict=True)
         else:
-            output_scalar = self.encoder(input)    #predict=False by default
-            output_scalar = self.decoder.forward(output_scalar)
+            enc1, enc2, enc3 = self.encoder(input)    #predict=False by default
+            output_scalar = self.decoder.forward(enc1, enc2, enc3)
             if self.softmax_classes > 0:
                 return output_scalar, self.class_power
             else:
