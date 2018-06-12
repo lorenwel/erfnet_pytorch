@@ -32,15 +32,15 @@ class non_bottleneck_1d (nn.Module):
 
         self.conv1x3_1 = nn.Conv2d(chann, chann, (1,3), stride=1, padding=(0,1), bias=True)
 
-        # self.bn1 = nn.BatchNorm2d(chann, eps=1e-03)
+        self.bn1 = nn.BatchNorm2d(chann, eps=1e-03)
 
         self.conv3x1_2 = nn.Conv2d(chann, chann, (3, 1), stride=1, padding=(1*dilated,0), bias=True, dilation = (dilated,1))
 
         self.conv1x3_2 = nn.Conv2d(chann, chann, (1,3), stride=1, padding=(0,1*dilated), bias=True, dilation = (1, dilated))
 
-        # self.bn2 = nn.BatchNorm2d(chann, eps=1e-03)
+        self.bn2 = nn.BatchNorm2d(chann, eps=1e-03)
 
-        # self.dropout = nn.Dropout2d(dropprob)
+        self.dropout = nn.Dropout2d(dropprob)
         
 
     def forward(self, input):
@@ -68,36 +68,29 @@ class Encoder(nn.Module):
         print("Using self-supervised encoder.")
         self.initial_block = DownsamplerBlock(3,16)
 
-        self.block1 = nn.ModuleList()
-        self.block2 = nn.ModuleList()
+        self.layers = nn.ModuleList()
 
-        self.block1.append(DownsamplerBlock(16,64))
+        self.layers.append(DownsamplerBlock(16,64))
 
         for x in range(0, 5):    #5 times
-           self.block1.append(non_bottleneck_1d(64, 0.03, 1)) 
+           self.layers.append(non_bottleneck_1d(64, 0.03, 1)) 
 
-        self.block2.append(DownsamplerBlock(64,128))
+        self.layers.append(DownsamplerBlock(64,128))
 
         for x in range(0, 2):    #2 times
-            self.block2.append(non_bottleneck_1d(128, 0.3, 2))
-            self.block2.append(non_bottleneck_1d(128, 0.3, 4))
-            self.block2.append(non_bottleneck_1d(128, 0.3, 8))
-            self.block2.append(non_bottleneck_1d(128, 0.3, 16))
+            self.layers.append(non_bottleneck_1d(128, 0.3, 2))
+            self.layers.append(non_bottleneck_1d(128, 0.3, 4))
+            self.layers.append(non_bottleneck_1d(128, 0.3, 8))
+            self.layers.append(non_bottleneck_1d(128, 0.3, 16))
 
         #Only in encoder mode:
         self.output_conv = nn.Conv2d(128, 1, 1, stride=1, padding=0, bias=True)
 
-    def forward(self, input, predict=False):
+    def forward(self, input):
         output = self.initial_block(input)
 
-        for layer in self.block1:
+        for layer in self.layers:
             output = layer(output)
-
-        for layer in self.block2:
-            output = layer(output)
-
-        if predict:
-            return self.output_conv(output)
 
         return output
 
@@ -106,7 +99,7 @@ class UpsamplerBlock (nn.Module):
     def __init__(self, ninput, noutput):
         super().__init__()
         self.conv = nn.ConvTranspose2d(ninput, noutput, 3, stride=2, padding=1, output_padding=1, bias=True)
-        # self.bn = nn.BatchNorm2d(noutput, eps=1e-3)
+        self.bn = nn.BatchNorm2d(noutput, eps=1e-3)
 
     def forward(self, input):
         output = self.conv(input)
@@ -198,16 +191,14 @@ class Net(nn.Module):
         if (encoder == None):
             self.encoder = Encoder()
         else:
+            print("ERFnet set encoder from external")
             self.encoder = encoder
         self.decoder = Decoder(softmax_classes, late_dropout_prob)
 
-    def forward(self, input, only_encode=False):
-        if only_encode:
-            return self.encoder.forward(input, predict=True)
+    def forward(self, input):
+        output_scalar = self.encoder(input)
+        output_scalar = self.decoder.forward(output_scalar)
+        if self.softmax_classes > 0:
+            return output_scalar, self.class_power
         else:
-            output_scalar = self.encoder(input)    #predict=False by default
-            output_scalar = self.decoder.forward(output_scalar)
-            if self.softmax_classes > 0:
-                return output_scalar, self.class_power
-            else:
-                return output_scalar
+            return output_scalar

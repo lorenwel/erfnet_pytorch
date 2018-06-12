@@ -108,8 +108,9 @@ class MyCoTransform(object):
             target_crop = target_crop.crop((hor_pos, 480 - img_size[1], hor_pos + img_size[0], 480))
             target_test = np.array(target_crop, dtype="float32")
             # Condition to avoid black bars from rotation:
-            if target_test[0,0] == 0 or target_test[0,-1] == 0 or target_test[-1,0] == 0 or target_test[-1,-1] == 0:
-                continue
+            # if target_test[0,0] == 0 or target_test[0,-1] == 0 or target_test[-1,0] == 0 or target_test[-1,-1] == 0:
+            #     print("Crop and rotate left border")
+            #     continue
             # Condition to make sure we have crop containing footprints
             if np.any(target_test >= 0.0):
                 input = input_crop.resize((640,480))
@@ -221,8 +222,8 @@ class ClassificationAccuracy():
 
     def __call__(self, prob, targets):
         max_class = prob.argmax(dim=1, keepdim=True).squeeze()
-        n_correct = (max_class == targets).sum()
-        n_total = (torch.ge(targets, 0.0)).sum()
+        n_correct = (max_class == targets).sum().float()
+        n_total = (torch.ge(targets, 0.0)).sum().float()
         return n_correct / n_total
 
 

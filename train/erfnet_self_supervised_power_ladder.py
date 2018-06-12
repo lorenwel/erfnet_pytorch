@@ -87,7 +87,7 @@ class Encoder(nn.Module):
         #Only in encoder mode:
         self.output_conv = nn.Conv2d(128, 1, 1, stride=1, padding=0, bias=True)
 
-    def forward(self, input, predict=False):
+    def forward(self, input):
         output1 = self.initial_block(input)
 
         output2 = output1
@@ -97,9 +97,6 @@ class Encoder(nn.Module):
         output3 = output2    
         for layer in self.block2:
             output3 = layer(output3)
-
-        if predict:
-            return self.output_conv(output3)
 
         return output1, output2, output3
 
@@ -219,13 +216,10 @@ class Net(nn.Module):
             self.encoder = encoder
         self.decoder = Decoder(softmax_classes, late_dropout_prob)
 
-    def forward(self, input, only_encode=False):
-        if only_encode:
-            return self.encoder.forward(input, predict=True)
+    def forward(self, input):
+        enc1, enc2, enc3 = self.encoder(input)
+        output_scalar = self.decoder.forward(enc1, enc2, enc3)
+        if self.softmax_classes > 0:
+            return output_scalar, self.class_power
         else:
-            enc1, enc2, enc3 = self.encoder(input)    #predict=False by default
-            output_scalar = self.decoder.forward(enc1, enc2, enc3)
-            if self.softmax_classes > 0:
-                return output_scalar, self.class_power
-            else:
-                return output_scalar
+            return output_scalar
