@@ -54,7 +54,7 @@ class L1LossMasked(torch.nn.Module):
         self.loss = torch.nn.L1Loss(False, False)
 
     def forward(self, outputs, targets):
-        return self.loss(outputs.squeeze(), targets).masked_select(torch.gt(targets, 0.0)).mean()
+        return self.loss(outputs.squeeze(1), targets).masked_select(torch.gt(targets, 0.0)).mean()
 
 class L1LossTraversability(torch.nn.Module):
 

@@ -208,11 +208,11 @@ class ColorizeClasses:
 
     def __call__(self, gray_image):
         size = gray_image.size()
-        color_image = torch.FloatTensor(3, size[1], size[2]).fill_(0)
+        color_image = torch.FloatTensor(3, size[0], size[1]).fill_(0)
 
         #for label in range(1, len(self.cmap)):
         for label in range(0, len(self.cmap)):
-            mask = gray_image[0] == label
+            mask = gray_image == label
             #mask = gray_image == label
 
             color_image[0].masked_fill_(mask, self.cmap[label][0])
@@ -230,6 +230,6 @@ class ColorizeClassesProb(ColorizeClasses):
         super().__init__(n)
 
     def __call__(self, prob):
-        gray_image = prob.argmax(dim=0, keepdim=True)
+        gray_image = prob.argmax(dim=0)
         
         return super().__call__(gray_image)

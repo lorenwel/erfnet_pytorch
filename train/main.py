@@ -113,6 +113,7 @@ class MyCoTransform(object):
             #     print("Crop and rotate left border")
             #     continue
             # Condition to make sure we have crop containing footprints
+            # Make this condition proper for regression where we want > 0.0. Or fix border issues?!
             if np.any(target_test >= 0.0):
                 input = input_crop.resize((640,480))
                 target = target_crop.resize((640,480))
