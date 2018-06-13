@@ -921,7 +921,7 @@ def main(args):
 if __name__ == '__main__':
     parser = ArgumentParser()
     parser.add_argument('--cuda', action='store_true', default=True)  #NOTE: cpu-only has not been tested so you might have to change code if you deactivate this flag
-    parser.add_argument('--model', default="erfnet_self_supervised_power_trav")
+    parser.add_argument('--model', default="erfnet_classification_trav")
     parser.add_argument('--state')
 
     parser.add_argument('--port', type=int, default=8097)

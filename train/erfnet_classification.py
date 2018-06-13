@@ -13,6 +13,7 @@ import numpy as np
 from erfnet_blocks import *
 
 
+
 class Encoder(nn.Module):
     def __init__(self):
         super().__init__()
@@ -52,10 +53,7 @@ class Decoder (nn.Module):
         self.scalar_decoder_1 = DecoderBlock(128, 64)
         self.scalar_decoder_2 = DecoderBlock(64, 16)
 
-        if softmax_classes:
-            self.scalar_output_conv = SoftMaxConv(16, softmax_classes, late_dropout_prob)
-        else:
-            self.scalar_output_conv = nn.ConvTranspose2d( 16, 1, 2, stride=2, padding=0, output_padding=0, bias=True)
+        self.scalar_output_conv = nn.ConvTranspose2d( 16, softmax_classes, 2, stride=2, padding=0, output_padding=0, bias=True)
 
 
     def forward(self, input):

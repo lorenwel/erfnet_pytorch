@@ -29,6 +29,8 @@ from dataset import self_supervised_power
 from transform import Relabel, ToLabel, Colorize, ColorizeMinMax, ColorizeWithProb, ColorizeClasses, ColorizeClassesProb, FloatToLongLabel, ToFloatLabel, getMaxProbValue
 from visualize import Dashboard
 
+from evaluation_functions import *
+
 import importlib
 
 from shutil import copyfile
@@ -67,10 +69,10 @@ class MyCoTransform(object):
         self.shear_angle = 5.0
         self.crop_ratio = 0.7
 
-        self.color_augmentation = ColorJitter(brightness=0.5,
-                                              contrast=0.5,
-                                              saturation=0.5,
-                                              hue=0.07)
+        self.color_augmentation = ColorJitter(brightness=0.4,
+                                              contrast=0.4,
+                                              saturation=0.4,
+                                              hue=0.06)
         pass
 
     def transform_augmentation(self, image, flip, rotation, affine_angle, affine_shear):
@@ -129,122 +131,6 @@ class MyCoTransform(object):
 
         return input1, input2, target
 
-
-class CrossEntropyLoss2d(torch.nn.Module):
-
-    def __init__(self, weight=None):
-        super().__init__()
-
-        self.loss = torch.nn.CrossEntropyLoss(ignore_index=-1)
-
-    def forward(self, outputs, targets):
-        return self.loss(outputs, targets)
-
-class MSELossPosElements(torch.nn.Module):
-
-    def __init__(self):
-        super().__init__()
-
-        self.loss = torch.nn.MSELoss(False, False)
-
-    def forward(self, output_prob, output_cost, targets):
-        shape = output_prob.size()
-        cur_loss = self.loss(output_cost.expand(shape), targets.expand(shape))
-        # cur_loss = self.loss(output_prob.expand(shape), targets.expand(shape))
-        weighted_loss = cur_loss * output_prob
-        # only compute loss for places where label exists.
-        masked_loss = weighted_loss.masked_select(torch.gt(targets, 0.0))
-        return masked_loss.mean()
-
-class L1LossClassProbMasked(torch.nn.Module):
-
-    def __init__(self):
-        super().__init__()
-
-        self.loss = torch.nn.L1Loss(False, False)
-
-    def forward(self, output_prob, output_cost, targets):
-        shape = output_prob.size()
-        cur_loss = self.loss(output_cost.expand(shape), targets.expand(shape))
-        # cur_loss = self.loss(output_prob.expand(shape), targets.expand(shape))
-        weighted_loss = cur_loss * output_prob
-        # only compute loss for places where label exists.
-        masked_loss = weighted_loss.sum(dim=1, keepdim=True).masked_select(torch.gt(targets, 0.0))
-        return masked_loss.mean()
-
-class L1LossMasked(torch.nn.Module):
-
-    def __init__(self):
-        super().__init__()
-
-        self.loss = torch.nn.L1Loss(False, False)
-
-    def forward(self, outputs, targets):
-        return self.loss(outputs, targets).masked_select(torch.gt(targets, 0.0)).mean()
-
-class L1LossTraversability(torch.nn.Module):
-
-    def __init__(self):
-        super().__init__()
-        self.non_trav_weight = torch.autograd.Variable(torch.from_numpy(np.array([0.1], dtype="float32"))).cuda()
-
-        self.loss = torch.nn.L1Loss(False, False)
-
-    def forward(self, outputs, targets):
-        targets = targets.unsqueeze(1)
-        return (1-outputs[torch.ge(targets, 0.0)]).abs().mean() + (outputs[torch.lt(targets, 0.0)]).abs().mean()*self.non_trav_weight
-
-
-class L1Loss(torch.nn.Module):
-
-    def __init__(self):
-        super().__init__()
-
-        self.loss = torch.nn.L1Loss(True, True)
-
-    def forward(self, outputs, targets):
-        return self.loss(outputs, targets)
-
-class MSELossWeighted(torch.nn.Module):
-
-    def __init__(self):
-        super().__init__()
-
-        self.loss = torch.nn.MSELoss(False, False)
-        self.weight = torch.autograd.Variable(torch.Tensor([0.0])).cuda()
-
-    def forward(self, outputs, targets, weight):
-        self.weight.fill_(weight)
-        return (self.loss(outputs, targets) * self.weight).mean()
-
-class ClassificationAccuracy():
-
-    def __call__(self, prob, targets):
-        max_class = prob.argmax(dim=1, keepdim=True).squeeze()
-        n_correct = (max_class == targets).sum().float()
-        n_total = (torch.ge(targets, 0.0)).sum().float()
-        return n_correct / n_total
-
-class MeanAccuracy():
-
-    def __init__(self, n_classes):
-        super().__init__()
-
-        self.n_classes = n_classes
-
-    def __call__(self, prob, targets):
-        max_class = prob.argmax(dim=1, keepdim=True).squeeze()
-        correct_pred = max_class.masked_select(max_class == targets)
-        mean_acc = 0
-        num_classes = 0
-        for cur_class in range(0, self.n_classes):
-            n_correct = (correct_pred == cur_class).sum().float()
-            n_total = (targets == cur_class).sum().float()
-            if n_total > 0:
-                num_classes += 1
-                mean_acc += n_correct/n_total
-
-        return mean_acc / num_classes
 
 
 def copyWeightsToModelNoGrad(model_source, model_target):
@@ -312,11 +198,6 @@ def train(args, model_student, model_teacher, enc=False):
     #TODO: reduce memory in first gpu: https://discuss.pytorch.org/t/multi-gpu-training-memory-usage-in-balance/4163/4        #https://github.com/pytorch/pytorch/issues/1893
 
     optimizer = Adam(model_student.parameters(), LEARNING_RATE, BETAS,  eps=OPT_EPS, weight_decay=WEIGHT_DECAY)
-    if args.alternate_optimization:
-        params_prob = [param for name, param in model.named_parameters() if name != "module.class_power"]
-        params_power  = [param for name, param in model.named_parameters() if name == "module.class_power"]
-        optimizer_prob = Adam(params_prob, LEARNING_RATE, BETAS,  eps=OPT_EPS, weight_decay=WEIGHT_DECAY)
-        optimizer_power = Adam(params_power, LEARNING_RATE, BETAS,  eps=OPT_EPS, weight_decay=WEIGHT_DECAY)
 
     start_epoch = 1
 
@@ -342,10 +223,7 @@ def train(args, model_student, model_teacher, enc=False):
     #scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5) # set up scheduler     ## scheduler 1
     lambda1 = lambda epoch: pow((1-((epoch-1)/args.num_epochs)),0.9)  ## scheduler 2
     scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda1)                             ## scheduler 2
-    if args.alternate_optimization:
-        scheduler_prob = lr_scheduler.LambdaLR(optimizer_prob, lr_lambda=lambda1)                             ## scheduler 2
-        scheduler_power = lr_scheduler.LambdaLR(optimizer_power, lr_lambda=lambda1)                             ## scheduler 2
-
+    
     if args.visualize:
         board = Dashboard(args.port)
         writer = SummaryWriter()
@@ -374,13 +252,7 @@ def train(args, model_student, model_teacher, enc=False):
         if args.no_mean_teacher:
             cur_consistency_weight = 0.0
 
-        if args.alternate_optimization:
-            if epoch % 2 == 0:
-                scheduler_power.step(epoch)
-            else:
-                scheduler_prob.step(epoch)
-        else:
-            scheduler.step(epoch)    ## scheduler 2
+        scheduler.step(epoch)
 
         average_loss_student_val = 0
         average_loss_teacher_val = 0
@@ -423,22 +295,19 @@ def train(args, model_student, model_teacher, enc=False):
                 # Forced into discrete classes. 
                 output_student_prob, output_student_power = model_student(inputs1)
                 output_teacher_prob, output_teacher_power = model_teacher(inputs2)
-                if args.alternate_optimization:
-                    if epoch % 2 == 0:
-                        optimizer_power.zero_grad()
-                    else:
-                        optimizer_prob.zero_grad()
-                else:
-                    optimizer.zero_grad()
+
+                optimizer.zero_grad()
+
                 loss_student_pred = criterion(output_student_prob, targets)
                 loss_teacher_pred = criterion(output_teacher_prob, targets)
                 loss_consistency = criterion_consistency(output_student_prob, output_teacher_prob, cur_consistency_weight)
                 acc_student = criterion_acc(output_student_prob, targets)
                 acc_teacher = criterion_acc(output_teacher_prob, targets)
-                mean_acc_student = criterion_mean_acc(output_student_prob, targets)
-                mean_acc_teacher = criterion_mean_acc(output_teacher_prob, targets)
+                if not args.plot_scalar:
+                    mean_acc_student = criterion_mean_acc(output_student_prob, targets)
+                    mean_acc_teacher = criterion_mean_acc(output_teacher_prob, targets)
             else:
-                # Straight regressoin
+                # Straight regression
                 output_student = model_student(inputs1)
                 output_teacher = model_teacher(inputs2)
                 optimizer.zero_grad()
@@ -454,14 +323,7 @@ def train(args, model_student, model_teacher, enc=False):
             else: 
                 loss_student_pred.backward()
 
-
-            if args.alternate_optimization:
-                if epoch % 2 == 0:
-                    optimizer_power.step()
-                else:
-                    optimizer_prob.step()
-            else:
-                optimizer.step()
+            optimizer.step()
 
             # Copy more from student for the first DISCOUNT_RATE_START_EPOCH epochs.
             if epoch < DISCOUNT_RATE_START_EPOCH:
@@ -473,7 +335,7 @@ def train(args, model_student, model_teacher, enc=False):
             epoch_loss_student.append(loss_student_pred.data.item())
             epoch_loss_teacher.append(loss_teacher_pred.data.item())
             epoch_loss_consistency.append(loss_consistency.data.item())
-            if (args.force_n_classes) > 0:
+            if (args.force_n_classes) > 0 and not args.plot_scalar:
                 epoch_acc_student.append(acc_student.data.item())
                 epoch_acc_teacher.append(acc_teacher.data.item())
                 epoch_mean_acc_student.append(mean_acc_student.data.item())
@@ -486,20 +348,23 @@ def train(args, model_student, model_teacher, enc=False):
                 # Figure out and compute tensor to visualize. 
                 if args.force_n_classes > 0:
                     # Compute weighted power consumption
-                    sum_dim = output_student_prob.dim()-3
-                    # weighted_sum_output = (output_student_prob * output_student_power).sum(dim=sum_dim, keepdim=True)
+                    if args.plot_scalar:
+                        sum_dim = output_student_prob.dim()-3
+                        weighted_sum_output = (output_student_prob * output_student_power).sum(dim=sum_dim, keepdim=True)
                     if (isinstance(output_student_prob, list)):
                         max_prob, vis_output = getMaxProbValue(output_student_prob[0][0].cpu().data, output_student_power[0][0].cpu().data)
                         max_prob_teacher, vis_output_teacher = getMaxProbValue(output_teacher_prob[0][0].cpu().data, output_teacher_power[0][0].cpu().data)
                         writer.add_image("train/2_classes", color_transform_classes_prob(output_student_prob[0][0].cpu().data), step_vis_no)
                         writer.add_image("train/3_max_class_probability", max_prob[0][0], step_vis_no)
-                        # writer.add_image("train/4_weighted_output", color_transform_output(weighted_sum_output[0][0].cpu().data), step_vis_no)
+                        if args.plot_scalar:
+                            writer.add_image("train/4_weighted_output", color_transform_output(weighted_sum_output[0][0].cpu().data), step_vis_no)
                     else:
                         max_prob, vis_output = getMaxProbValue(output_student_prob[0].cpu().data, output_student_power[0].cpu().data)
                         max_prob_teacher, vis_output_teacher = getMaxProbValue(output_teacher_prob[0].cpu().data, output_teacher_power[0].cpu().data)
                         writer.add_image("train/2_classes", color_transform_classes_prob(output_student_prob[0].cpu().data), step_vis_no)
                         writer.add_image("train/3_max_class_probability", max_prob[0], step_vis_no)
-                        # writer.add_image("train/4_weighted_output", color_transform_output(weighted_sum_output[0].cpu().data), step_vis_no)
+                        if args.plot_scalar:
+                            writer.add_image("train/4_weighted_output", color_transform_output(weighted_sum_output[0].cpu().data), step_vis_no)
                 else:
                     if (isinstance(output_teacher, list)):
                         vis_output = output_student[0][0].cpu().data
@@ -513,8 +378,9 @@ def train(args, model_student, model_teacher, enc=False):
                 image2 = inputs2[0].cpu().data
                 writer.add_image("train/1_input_student", image1, step_vis_no)
                 writer.add_image("train/1_input_teacher", image2, step_vis_no)
-                # writer.add_image("train/5_output_student", color_transform_output(vis_output), step_vis_no)
-                # writer.add_image("train/5_output_teacher", color_transform_output(vis_output_teacher), step_vis_no)
+                if args.plot_scalar:
+                    writer.add_image("train/5_output_student", color_transform_output(vis_output), step_vis_no)
+                    writer.add_image("train/5_output_teacher", color_transform_output(vis_output_teacher), step_vis_no)
                 writer.add_image("train/6_target", color_transform_classes(targets.cpu().data), step_vis_no)
 
                 # Visualize graph.
@@ -527,12 +393,13 @@ def train(args, model_student, model_teacher, enc=False):
         for ind, (s_val, t_val) in enumerate(zip(epoch_loss_student, epoch_loss_teacher)):
             loss_dict = {'student': s_val, 'teacher': t_val}
             writer.add_scalars("train/instant_loss", loss_dict, total_steps_train + ind)
-        for ind, val in enumerate(epoch_loss_consistency):
-            writer.add_scalar("train/instant_loss_consistency", val, total_steps_train + ind)
-        if (args.force_n_classes) > 0:
+        if not args.no_mean_teacher:
+            for ind, val in enumerate(epoch_loss_consistency):
+                writer.add_scalar("train/instant_loss_consistency", val, total_steps_train + ind)
+        if not args.plot_scalar:
             for ind, (s_val, t_val) in enumerate(zip(epoch_acc_student, epoch_acc_teacher)):
                 acc_dict = {'student': s_val, 'teacher': t_val}
-                writer.add_scalars("train/instant_acc", acc_dict, total_steps_train + ind)
+                writer.add_scalars("train/instant_pixel_acc", acc_dict, total_steps_train + ind)
             for ind, (s_val, t_val) in enumerate(zip(epoch_mean_acc_student, epoch_mean_acc_teacher)):
                 acc_dict = {'student': s_val, 'teacher': t_val}
                 writer.add_scalars("train/instant_mean_acc", acc_dict, total_steps_train + ind)
@@ -540,19 +407,21 @@ def train(args, model_student, model_teacher, enc=False):
         avg_loss_teacher = sum(epoch_loss_teacher)/len(epoch_loss_teacher)
         loss_dict = {'student': sum(epoch_loss_student)/len(epoch_loss_student), 'teacher': avg_loss_teacher}
         writer.add_scalars("train/epoch_loss", loss_dict, total_steps_train)
-        writer.add_scalar("train/epoch_loss_consistency", sum(epoch_loss_consistency)/len(epoch_loss_consistency), total_steps_train)
-        if (args.force_n_classes) > 0:
+        if not args.no_mean_teacher:
+            writer.add_scalar("train/epoch_loss_consistency", sum(epoch_loss_consistency)/len(epoch_loss_consistency), total_steps_train)
+        if not args.plot_scalar:
             acc_dict = {'student': sum(epoch_acc_student)/len(epoch_acc_student), 'teacher': sum(epoch_acc_teacher)/len(epoch_acc_teacher)}
             writer.add_scalars("train/epoch_pixel_acc", acc_dict, total_steps_train)
             acc_dict = {'student': sum(epoch_mean_acc_student)/len(epoch_mean_acc_student), 'teacher': sum(epoch_mean_acc_teacher)/len(epoch_mean_acc_teacher)}
             writer.add_scalars("train/epoch_mean_acc", acc_dict, total_steps_train)
         # Clear loss for next loss print iteration.
         # Output class power costs
-        # power_dict = {}
-        # if args.force_n_classes > 0:
-        #     for ind, val in enumerate(output_teacher_power.squeeze()):
-        #         power_dict[str(ind)] = val
-        #     writer.add_scalars("params/class_cost", power_dict, total_steps_train)
+        if args.plot_scalar:
+            if args.force_n_classes > 0:
+                power_dict = {}
+                for ind, val in enumerate(output_teacher_power.squeeze()):
+                    power_dict[str(ind)] = val
+                writer.add_scalars("params/class_cost", power_dict, total_steps_train)
         epoch_loss_student = []
         epoch_loss_teacher = []
         epoch_loss_consistency = []
@@ -605,8 +474,9 @@ def train(args, model_student, model_teacher, enc=False):
                 max_prob, output_student = getMaxProbValue(output_student_prob, output_student_power)
                 max_prob, output_teacher = getMaxProbValue(output_teacher_prob, output_teacher_power)
                 # Compute weighted power consumption
-                sum_dim = output_student_prob.dim()-3
-                # weighted_sum_output = (output_student_prob * output_student_power).sum(dim=sum_dim, keepdim=True)
+                if args.plot_scalar:
+                    sum_dim = output_student_prob.dim()-3
+                    weighted_sum_output = (output_student_prob * output_student_power).sum(dim=sum_dim, keepdim=True)
             else:
                 output_student = model_student(inputs1)
                 output_teacher = model_teacher(inputs2)
@@ -615,7 +485,7 @@ def train(args, model_student, model_teacher, enc=False):
             loss_teacher = criterion_val(output_teacher_prob, targets)
             epoch_loss_student_val.append(loss_student.data.item())
             epoch_loss_teacher_val.append(loss_teacher.data.item())
-            if args.force_n_classes:
+            if not args.plot_scalar:
                 acc_student = criterion_acc(output_student_prob, targets)
                 acc_teacher = criterion_acc(output_teacher_prob, targets)
                 mean_acc_student = criterion_mean_acc(output_student_prob, targets)
@@ -636,20 +506,24 @@ def train(args, model_student, model_teacher, enc=False):
                 writer.add_image("val/1_input_student", image1, step_vis_no)
                 writer.add_image("val/1_input_teacher", image2, step_vis_no)
                 if isinstance(output_teacher, list):   #merge gpu tensors
-                    # writer.add_image("val/5_output_teacher", color_transform_output(output_teacher[0][0].cpu().data), step_vis_no)
-                    # writer.add_image("val/5_output_student", color_transform_output(output_student[0][0].cpu().data), step_vis_no)
-                    if args.force_n_classes > 0:
-                        writer.add_image("val/2_classes", color_transform_classes_prob(output_teacher_prob[0][0].cpu().data), step_vis_no)
-                        writer.add_image("val/3_max_class_probability", max_prob[0][0], step_vis_no)
-                        # writer.add_image("val/4_weighted_output", color_transform_output(weighted_sum_output[0][0].cpu().data), step_vis_no)
+                    if args.plot_scalar:
+                        writer.add_image("val/5_output_teacher", color_transform_output(output_teacher[0][0].cpu().data), step_vis_no)
+                        writer.add_image("val/5_output_student", color_transform_output(output_student[0][0].cpu().data), step_vis_no)
+                        if args.force_n_classes > 0:
+                            writer.add_image("val/2_classes", color_transform_classes_prob(output_teacher_prob[0][0].cpu().data), step_vis_no)
+                            writer.add_image("val/3_max_class_probability", max_prob[0][0], step_vis_no)
+                            if args.plot_scalar:
+                                writer.add_image("val/4_weighted_output", color_transform_output(weighted_sum_output[0][0].cpu().data), step_vis_no)
 
                 else:
-                    # writer.add_image("val/5_output_teacher", color_transform_output(output_teacher[0].cpu().data), step_vis_no)
-                    # writer.add_image("val/5_output_student", color_transform_output(output_student[0].cpu().data), step_vis_no)
+                    if args.plot_scalar:
+                        writer.add_image("val/5_output_teacher", color_transform_output(output_teacher[0].cpu().data), step_vis_no)
+                        writer.add_image("val/5_output_student", color_transform_output(output_student[0].cpu().data), step_vis_no)
                     if args.force_n_classes > 0:
                         writer.add_image("val/2_classes", color_transform_classes_prob(output_teacher_prob[0].cpu().data), step_vis_no)
                         writer.add_image("val/3_max_class_probability", max_prob[0], step_vis_no)
-                        # writer.add_image("val/4_weighted_output", color_transform_output(weighted_sum_output[0].cpu().data), step_vis_no)
+                        if args.plot_scalar:
+                            writer.add_image("val/4_weighted_output", color_transform_output(weighted_sum_output[0].cpu().data), step_vis_no)
                 writer.add_image("val/6_target", color_transform_classes(targets.cpu().data), step_vis_no)
                 print ("Time to paint images: ", time.time() - start_time_plot)
             # Plot histograms
@@ -677,7 +551,7 @@ def train(args, model_student, model_teacher, enc=False):
                 "// Avg time/img: %.4f s" % (sum(time_val) / len(time_val) / args.batch_size))
         loss_dict = {'student': sum(epoch_loss_student_val) / len(epoch_loss_student_val), 'teacher': avg_loss_teacher_val}
         writer.add_scalars("val/epoch_loss", loss_dict, total_steps_val)
-        if args.force_n_classes:
+        if not args.plot_scalar:
             acc_dict = {'student': sum(epoch_acc_student_val) / len(epoch_acc_student_val), 'teacher':sum(epoch_acc_teacher_val) / len(epoch_acc_teacher_val)}
             writer.add_scalars("val/epoch_pixel_acc", acc_dict, total_steps_val)
             acc_dict = {'student': sum(epoch_mean_acc_student_val) / len(epoch_mean_acc_student_val), 'teacher':sum(epoch_mean_acc_teacher_val) / len(epoch_mean_acc_teacher_val)}
@@ -796,7 +670,7 @@ def main(args):
 if __name__ == '__main__':
     parser = ArgumentParser()
     parser.add_argument('--cuda', action='store_true', default=True)  #NOTE: cpu-only has not been tested so you might have to change code if you deactivate this flag
-    parser.add_argument('--model', default="erfnet_self_supervised_power")
+    parser.add_argument('--model', default="erfnet_classification")
 
     parser.add_argument('--port', type=int, default=8097)
     parser.add_argument('--datadir', default=os.getenv("HOME") + "/datasets/cityscapes/")
@@ -813,9 +687,9 @@ if __name__ == '__main__':
     parser.add_argument('--spread-init', action='store_true', default=False)    # Spread initial class power over interval [0.7,...,2.0]
     parser.add_argument('--fix-class-power', action='store_true', default=False)    # Fix class power so that it is not optimized
     parser.add_argument('--late-dropout-prob', type=float, default=0.3)    # Specify dropout prob in last layer after softmax
-    parser.add_argument('--alternate-optimization', action='store_true', default=False) # Alternate optimizing class segmentation and class score every epoch
     parser.add_argument('--subsample', type=int, default=1) # Only use every nth image of a dataset.
-    parser.add_argument('--no-mean-teacher', action='store_true', default=False)
+    parser.add_argument('--no-mean-teacher', action='store_true', default=False)    # Disable mean teacher
+    parser.add_argument('--plot-scalar', action='store_true', default=True) # Plot power consumption or whatever scalar value
 
     parser.add_argument('--resume', action='store_true')    #Use this flag to load last checkpoint for training  
 
