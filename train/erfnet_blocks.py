@@ -35,15 +35,15 @@ class non_bottleneck_1d (nn.Module):
 
         self.conv1x3_1 = nn.Conv2d(chann, chann, (1,3), stride=1, padding=(0,1), bias=True)
 
-        self.bn1 = nn.BatchNorm2d(chann, eps=1e-03)
+        # self.bn1 = nn.BatchNorm2d(chann, eps=1e-03)
 
         self.conv3x1_2 = nn.Conv2d(chann, chann, (3, 1), stride=1, padding=(1*dilated,0), bias=True, dilation = (dilated,1))
 
         self.conv1x3_2 = nn.Conv2d(chann, chann, (1,3), stride=1, padding=(0,1*dilated), bias=True, dilation = (1, dilated))
 
-        self.bn2 = nn.BatchNorm2d(chann, eps=1e-03)
+        # self.bn2 = nn.BatchNorm2d(chann, eps=1e-03)
 
-        self.dropout = nn.Dropout2d(dropprob)
+        # self.dropout = nn.Dropout2d(dropprob)
         
 
     def forward(self, input):
@@ -70,7 +70,7 @@ class UpsamplerBlock (nn.Module):
     def __init__(self, ninput, noutput):
         super().__init__()
         self.conv = nn.ConvTranspose2d(ninput, noutput, 3, stride=2, padding=1, output_padding=1, bias=True)
-        self.bn = nn.BatchNorm2d(noutput, eps=1e-3)
+        # self.bn = nn.BatchNorm2d(noutput, eps=1e-3)
 
     def forward(self, input):
         output = self.conv(input)
@@ -85,12 +85,12 @@ class SoftMaxConv (nn.Module):
 
         print("Added intermediate softmax layer with ", softmax_classes, " classes")
         self.convolution = nn.ConvTranspose2d( in_channels, softmax_classes, 2, stride=2, padding=0, output_padding=0, bias=True)
-        # print("Set late dropout prob to ", late_dropout_prob)
-        # self.dropout = torch.nn.Dropout2d(p=late_dropout_prob)
+        print("Set late dropout prob to ", late_dropout_prob)
+        self.dropout = torch.nn.Dropout2d(p=late_dropout_prob)
 
     def forward(self, input):
         output = self.convolution(input)
-        # output = self.dropout(output)
+        output = self.dropout(output)
         output = torch.nn.functional.softmax(output, dim=1)
 
         return output

@@ -94,7 +94,7 @@ class FloatToLongLabel:
 class ToFloatLabel:
 
     def __call__(self, image):
-        return torch.from_numpy(np.array(image)).unsqueeze(0)
+        return torch.from_numpy(np.array(image)).float()
 
 
 
@@ -102,15 +102,16 @@ def getColorImageFromMinMax(gray_image, min_val, max_val, factor_val = None, ext
     if factor_val is None:
         factor_val = white_val / (max_val - min_val)
 
+    gray_image = gray_image.squeeze()
     size = gray_image.size()
-    color_image = torch.FloatTensor(3, size[1], size[2]).fill_(0.0)
+    color_image = torch.FloatTensor(3, size[0], size[1]).fill_(0.0)
     # Pixels in interval.
-    mask = (torch.lt(gray_image, max_val) & torch.gt(gray_image, min_val)).squeeze()
+    mask = (torch.lt(gray_image, max_val) & torch.gt(gray_image, min_val))
     # Color pixels greater than max_val green.
-    mask_ge_max = torch.ge(gray_image, max_val).squeeze()
+    mask_ge_max = torch.ge(gray_image, max_val)
     color_image[0].masked_fill_(mask_ge_max, white_val)
     # Color pixels less than min_val green.
-    mask_le_min = torch.le(gray_image, min_val).squeeze()
+    mask_le_min = torch.le(gray_image, min_val)
     color_image[1].masked_fill_(mask_le_min, white_val)
     # Compute pixel values in interval. 
     # TODO: This might be slow. 
@@ -229,7 +230,6 @@ class ColorizeClassesProb(ColorizeClasses):
         super().__init__(n)
 
     def __call__(self, prob):
-        prob = torch.nn.functional.softmax(prob,dim=1)
         gray_image = prob.argmax(dim=0, keepdim=True)
         
         return super().__call__(gray_image)

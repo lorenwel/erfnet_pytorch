@@ -73,7 +73,7 @@ class Net(nn.Module):
                        softmax_classes=0, 
                        spread_class_power=False, 
                        fix_class_power=False, 
-                       late_dropout_prob=0.3):  #use encoder to pass pretrained encoder
+                       late_dropout_prob=0.1):  #use encoder to pass pretrained encoder
         super().__init__()
 
         self.softmax_classes = softmax_classes

@@ -44,11 +44,12 @@ def split_first_subname(filename, delim='_'):
 
 class self_supervised_power(Dataset):
 
-    def __init__(self, root, co_transform, subset='train', file_format="npy", label_name="0", subsample=1):
+    def __init__(self, root, co_transform, subset='train', file_format="npy", label_name="0", subsample=1, tensor_type='long'):
         self.images_root = os.path.join(root, subset)
         self.labels_root = os.path.join(root, subset)
         self.file_format = file_format
         self.label_name = label_name
+        self.tensor_type = tensor_type
         
         print ("Image root is: " + self.images_root)
         print ("Label root is: " + self.labels_root)
@@ -102,7 +103,10 @@ class self_supervised_power(Dataset):
         # Convert to tensor
         image1 = ToTensor()(image1)
         image2 = ToTensor()(image2)
-        label = ToLabel()(label)
+        if self.tensor_type=='long':
+            label = ToLabel()(label)
+        elif self.tensor_type=='float':
+            label = ToFloatLabel()(label)
         # Remove 0.0 image regions from transform padding
         # label[label == 0] = -1
         # label[label == -2] = 0

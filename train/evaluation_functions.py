@@ -37,6 +37,7 @@ class L1LossClassProbMasked(torch.nn.Module):
         self.loss = torch.nn.L1Loss(False, False)
 
     def forward(self, output_prob, output_cost, targets):
+        targets = targets.unsqueeze(1)
         shape = output_prob.size()
         cur_loss = self.loss(output_cost.expand(shape), targets.expand(shape))
         # cur_loss = self.loss(output_prob.expand(shape), targets.expand(shape))
@@ -53,7 +54,7 @@ class L1LossMasked(torch.nn.Module):
         self.loss = torch.nn.L1Loss(False, False)
 
     def forward(self, outputs, targets):
-        return self.loss(outputs, targets).masked_select(torch.gt(targets, 0.0)).mean()
+        return self.loss(outputs.squeeze(), targets).masked_select(torch.gt(targets, 0.0)).mean()
 
 class L1LossTraversability(torch.nn.Module):
 
@@ -118,4 +119,3 @@ class MeanAccuracy():
                 mean_acc += n_correct/n_total
 
         return mean_acc / num_classes
-        
