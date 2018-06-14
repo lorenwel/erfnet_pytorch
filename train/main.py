@@ -266,9 +266,12 @@ def train(args, model_student, model_teacher, enc=False):
         epoch_loss_teacher = []
         if args.classification:
             epoch_acc_student = []
-            epoch_acc_teacher = []
             epoch_mean_acc_student = []
-            epoch_mean_acc_teacher = []
+            epoch_class_acc_student = np.empty((len(dataset_train), args.force_n_classes))
+            if args.mean_teacher:
+                epoch_acc_teacher = []
+                epoch_mean_acc_teacher = []
+                epoch_class_acc_teacher = np.empty((len(dataset_train), args.force_n_classes))
         if args.mean_teacher:
             epoch_loss_consistency = []
         time_train = []
@@ -322,10 +325,10 @@ def train(args, model_student, model_teacher, enc=False):
                     loss_consistency = criterion_consistency(output_student_prob, output_teacher_prob, cur_consistency_weight)
                 if args.classification:
                     acc_student = criterion_acc(output_student_prob, targets)
-                    mean_acc_student = criterion_mean_acc(output_student_prob, targets)
+                    mean_acc_student, epoch_class_acc_student[step,:] = criterion_mean_acc(output_student_prob, targets)
                     if args.mean_teacher:
                         acc_teacher = criterion_acc(output_teacher_prob, targets)
-                        mean_acc_teacher = criterion_mean_acc(output_teacher_prob, targets)
+                        mean_acc_teacher, epoch_class_acc_teacher[step,:] = criterion_mean_acc(output_teacher_prob, targets)
             else:
                 output_student = model_student(inputs1)
                 if args.mean_teacher:
@@ -427,6 +430,17 @@ def train(args, model_student, model_teacher, enc=False):
                 for ind, (s_val, t_val) in enumerate(zip(epoch_mean_acc_student, epoch_mean_acc_teacher)):
                     acc_dict = {'student': s_val, 'teacher': t_val}
                     writer.add_scalars("train/instant_mean_acc", acc_dict, total_steps_train + ind)
+                for ind in range(0, len(dataset_train)):
+                    acc_dict = {}
+                    for class_ind in range(0,args.force_n_classes):
+                        s_val = epoch_class_acc_student[ind, class_ind]
+                        t_val = epoch_class_acc_teacher[ind, class_ind]
+                        if (~np.isnan(s_val)):
+                            acc_dict['student/'+str(class_ind)] = s_val
+                        if (~np.isnan(t_val)):
+                            acc_dict['teacher/'+str(class_ind)] = t_val
+                    writer.add_scalars("train/instant_class_acc", acc_dict, total_steps_train + ind)
+
         else:
             for ind, val in enumerate(epoch_loss_student):
                 writer.add_scalar("train/instant_loss", val, total_steps_train + ind)
@@ -435,6 +449,13 @@ def train(args, model_student, model_teacher, enc=False):
                     writer.add_scalar("train/instant_pixel_acc", val, total_steps_train + ind)
                 for ind, val in enumerate(epoch_mean_acc_student):
                     writer.add_scalar("train/instant_mean_acc", val, total_steps_train + ind)
+                for ind in range(0, len(dataset_train)):
+                    acc_dict = {}
+                    for class_ind in range(0, args.force_n_classes):
+                        val = epoch_class_acc_student[ind, class_ind]
+                        if ~np.isnan(val):
+                            acc_dict[str(class_ind)] = val
+                    writer.add_scalars("train/instant_class_acc/", acc_dict, total_steps_train + ind)
 
         total_steps_train += len_epoch_loss
 
@@ -448,11 +469,25 @@ def train(args, model_student, model_teacher, enc=False):
                 writer.add_scalars("train/epoch_pixel_acc", acc_dict, total_steps_train)
                 acc_dict = {'student': sum(epoch_mean_acc_student)/len(epoch_mean_acc_student), 'teacher': sum(epoch_mean_acc_teacher)/len(epoch_mean_acc_teacher)}
                 writer.add_scalars("train/epoch_mean_acc", acc_dict, total_steps_train)
+                # class acc
+                student_mean = np.nanmean(epoch_class_acc_student, axis=0)
+                teacher_mean = np.nanmean(epoch_class_acc_teacher, axis=0)
+                acc_dict = {}
+                for class_ind in range(0, args.force_n_classes):
+                    acc_dict['student/'+str(class_ind)] = student_mean[class_ind]
+                    acc_dict['teacher/'+str(class_ind)] = teacher_mean[class_ind]
+                writer.add_scalars("train/epoch_class_acc", acc_dict, total_steps_train)
+
         else:
             writer.add_scalar("train/epoch_loss", avg_epoch_loss_student, total_steps_train)
             if args.classification:
                 writer.add_scalar("train/epoch_pixel_acc", sum(epoch_acc_student)/len(epoch_acc_student), total_steps_train)
                 writer.add_scalar("train/epoch_mean_acc", sum(epoch_mean_acc_student)/len(epoch_mean_acc_student), total_steps_train)
+                student_mean = np.nanmean(epoch_class_acc_student, axis=0)
+                acc_dict = {}
+                for class_ind in range(0, args.force_n_classes):
+                    acc_dict[str(class_ind)] = student_mean[class_ind]
+                writer.add_scalars("train/epoch_class_acc", acc_dict, total_steps_train)
         # Output class power costs
         if args.regression and args.force_n_classes > 0:
             power_dict = {}
@@ -502,9 +537,11 @@ def train(args, model_student, model_teacher, enc=False):
         if args.classification:
             epoch_acc_student_val = []
             epoch_mean_acc_student_val = []
-            if args.classification:
+            epoch_class_acc_student_val = np.empty((len(dataset_val), args.force_n_classes))
+            if args.mean_teacher:
                 epoch_acc_teacher_val = []
                 epoch_mean_acc_teacher_val = []
+                epoch_class_acc_teacher_val = np.empty((len(dataset_val), args.force_n_classes))
         time_val = []
 
 
@@ -554,12 +591,12 @@ def train(args, model_student, model_teacher, enc=False):
                 epoch_loss_teacher_val.append(loss_teacher.data.item())
             if args.classification:
                 acc_student = criterion_acc(output_student_prob, targets)
-                mean_acc_student = criterion_mean_acc(output_student_prob, targets)
+                mean_acc_student, epoch_class_acc_student_val[step,:] = criterion_mean_acc(output_student_prob, targets)
                 epoch_acc_student_val.append(acc_student.data.item())
                 epoch_mean_acc_student_val.append(mean_acc_student.data.item())
                 if args.mean_teacher:
                     acc_teacher = criterion_acc(output_teacher_prob, targets)
-                    mean_acc_teacher = criterion_mean_acc(output_teacher_prob, targets)
+                    mean_acc_teacher, epoch_class_acc_teacher_val[step,:] = criterion_mean_acc(output_teacher_prob, targets)
                     epoch_acc_teacher_val.append(acc_teacher.data.item())
                     epoch_mean_acc_teacher_val.append(mean_acc_teacher.data.item())
             time_val.append(time.time() - start_time)
@@ -618,11 +655,23 @@ def train(args, model_student, model_teacher, enc=False):
                 writer.add_scalars("val/epoch_pixel_acc", acc_dict, total_steps_val)
                 acc_dict = {'student': sum(epoch_mean_acc_student_val) / len(epoch_mean_acc_student_val), 'teacher':sum(epoch_mean_acc_teacher_val) / len(epoch_mean_acc_teacher_val)}
                 writer.add_scalars("val/epoch_mean_acc", acc_dict, total_steps_val)
+                student_mean = np.nanmean(epoch_class_acc_student_val, axis=0)
+                teacher_mean = np.nanmean(epoch_class_acc_teacher_val, axis=0)
+                acc_dict = {}
+                for class_ind in range(0, args.force_n_classes):
+                    acc_dict['student/'+str(class_ind)] = student_mean[class_ind]
+                    acc_dict['teacher/'+str(class_ind)] = teacher_mean[class_ind]
+                writer.add_scalars("val/epoch_class_acc", acc_dict, total_steps_val)
         else:
             writer.add_scalar("val/epoch_loss", avg_loss_student_val, total_steps_val)
             if args.classification:
                 writer.add_scalar("val/epoch_pixel_acc", sum(epoch_acc_student_val) / len(epoch_acc_student_val), total_steps_val)
                 writer.add_scalar("val/epoch_mean_acc", sum(epoch_mean_acc_student_val) / len(epoch_mean_acc_student_val), total_steps_val)
+                student_mean = np.nanmean(epoch_class_acc_student_val, axis=0)
+                acc_dict = {}
+                for class_ind in range(0, args.force_n_classes):
+                    acc_dict[str(class_ind)] = student_mean[class_ind]
+                writer.add_scalars("val/epoch_class_acc", acc_dict, total_steps_val)
 
 
         epoch_loss_student_val = []

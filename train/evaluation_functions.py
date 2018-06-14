@@ -111,11 +111,14 @@ class MeanAccuracy():
         correct_pred = max_class.masked_select(max_class == targets)
         mean_acc = 0
         num_classes = 0
+        class_acc = []
         for cur_class in range(0, self.n_classes):
             n_correct = (correct_pred == cur_class).sum().float()
             n_total = (targets == cur_class).sum().float()
+            cur_acc = n_correct/n_total
+            class_acc.append(cur_acc)
             if n_total > 0:
                 num_classes += 1
-                mean_acc += n_correct/n_total
+                mean_acc += cur_acc
 
-        return mean_acc / num_classes
+        return mean_acc / num_classes, np.array(class_acc)
