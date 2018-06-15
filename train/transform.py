@@ -226,10 +226,13 @@ class ColorizeClasses:
 
 class ColorizeClassesProb(ColorizeClasses):
 
-    def __init__(self, n=22):
+    def __init__(self, n=22, apply_softmax=False):
         super().__init__(n)
+        self.apply_softmax = apply_softmax
 
     def __call__(self, prob):
+        if self.apply_softmax:
+            prob = torch.nn.functional.softmax(prob, dim=0)
         gray_image = prob.argmax(dim=0)
         
         return super().__call__(gray_image)

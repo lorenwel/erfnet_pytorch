@@ -91,30 +91,25 @@ class MyCoTransform(object):
         # Crop needs to happen here to avoid cropping out all footsteps
         while True:
             # Generate parameters for image transforms
-            crop_val = random.uniform(self.crop_ratio, 1.0)
-            if crop_val < 0.9:
-                rotation_angle = random.uniform(-self.rotation_angle, self.rotation_angle)  
-            else:
-                rotation_angle = 0.0
+            rotation_angle = random.uniform(-self.rotation_angle, self.rotation_angle)  
+            tan_ang = abs(math.tan(math.radians(rotation_angle)))
+            y_bound_pix = tan_ang*320
+            x_bound_pix = tan_ang*240
+            crop_val = random.uniform(self.crop_ratio, 1.0-(y_bound_pix/240))
             affine_angle = random.uniform(-self.affine_angle, self.affine_angle)
             shear_angle = random.uniform(-self.shear_angle, self.shear_angle)
             flip = random.random() < 0.5
             img_size = np.array([640, 480]) * crop_val
-            hor_pos = int(np.random.rand() * (640 - img_size[0]))
+            hor_pos = int(random.uniform(tan_ang, 1-tan_ang) * (640 - img_size[0]))
             # Do other transform.
             input_crop = self.transform_augmentation(input, flip, rotation_angle, affine_angle, shear_angle)
             target_crop = self.transform_augmentation(target, flip, rotation_angle, affine_angle, shear_angle)
             # Do crop
-            input_crop = input_crop.crop((hor_pos, 480 - img_size[1], hor_pos + img_size[0], 480))
-            target_crop = target_crop.crop((hor_pos, 480 - img_size[1], hor_pos + img_size[0], 480))
+            input_crop = input_crop.crop((hor_pos, 480 - img_size[1]-y_bound_pix, hor_pos + img_size[0], 480-y_bound_pix))
+            target_crop = target_crop.crop((hor_pos, 480 - img_size[1]-y_bound_pix, hor_pos + img_size[0], 480-y_bound_pix))
             target_test = np.array(target_crop, dtype="float32")
-            # Condition to avoid black bars from rotation:
-            # if target_test[0,0] == 0 or target_test[0,-1] == 0 or target_test[-1,0] == 0 or target_test[-1,-1] == 0:
-            #     print("Crop and rotate left border")
-            #     continue
-            # Condition to make sure we have crop containing footprints
             # Make this condition proper for regression where we want > 0.0. Or fix border issues?!
-            if np.any(target_test >= 0.0):
+            if np.any(target_test != -1):
                 input = input_crop.resize((640,480))
                 target = target_crop.resize((640,480))
                 break
@@ -146,7 +141,7 @@ def copyWeightsToModelWithDiscount(model_source, model_target, discount_factor):
         target.data = target.data * (1-discount_factor) + discount_factor * source.data
 
 
-best_acc = 0
+best_acc = -1000000
 
 def train(args, model_student, model_teacher, enc=False):
     global best_acc
@@ -164,7 +159,11 @@ def train(args, model_student, model_teacher, enc=False):
     dataset_val = self_supervised_power(args.datadir, None, 'val', file_format="csv", label_name=args.label_name, subsample=args.subsample,tensor_type=tensor_type)
 
     if args.force_n_classes > 0:
-        color_transform_classes_prob = ColorizeClassesProb(args.force_n_classes)  # Automatic color based on max class probability
+        if args.classification:
+            apply_softmax = True
+        else:   # regression
+            apply_softmax = False
+        color_transform_classes_prob = ColorizeClassesProb(args.force_n_classes, apply_softmax)  # Automatic color based on max class probability
         color_transform_classes = ColorizeClasses(args.force_n_classes)  # Automatic color based on max class probability
 
     loader = DataLoader(dataset_train, num_workers=args.num_workers, batch_size=args.batch_size, shuffle=True)
@@ -674,6 +673,12 @@ def train(args, model_student, model_teacher, enc=False):
                 writer.add_scalars("val/epoch_class_acc", acc_dict, total_steps_val)
 
 
+        # remember best valIoU and save checkpoint
+        if args.classification:
+            current_acc = sum(epoch_mean_acc_student_val) / len(epoch_mean_acc_student_val)
+        else:   # regression
+            current_acc = -average_epoch_loss_val
+
         epoch_loss_student_val = []
         if args.mean_teacher:
             epoch_loss_teacher_val = []
@@ -686,8 +691,6 @@ def train(args, model_student, model_teacher, enc=False):
 
         average_epoch_loss_val = avg_loss_student_val
 
-        # remember best valIoU and save checkpoint
-        current_acc = average_epoch_loss_val
         is_best = current_acc > best_acc
         best_acc = max(current_acc, best_acc)
         if enc:
@@ -810,7 +813,7 @@ if __name__ == '__main__':
     parser.add_argument('--num-epochs', type=int, default=150)
     parser.add_argument('--num-workers', type=int, default=4)
     parser.add_argument('--batch-size', type=int, default=6)
-    parser.add_argument('--epochs-save', type=int, default=0)    #You can use this value to save model every X epochs
+    parser.add_argument('--epochs-save', type=int, default=10)    #You can use this value to save model every X epochs
     parser.add_argument('--savedir', required=True)
     parser.add_argument('--pretrainedEncoder') #, default="../trained_models/erfnet_encoder_pretrained.pth.tar")
     parser.add_argument('--pretrained') #, default="../trained_models/erfnet_encoder_pretrained.pth.tar")
