@@ -91,8 +91,10 @@ class self_supervised_power(Dataset):
         else:
             print("Unsupported file format " + self.file_format)
 
+        ### NASTY THING, BREAKS CLASSIFICATION, REMOVE!!!!
+        # label_array[label_array == 0] = -1
+        ############################
 
-        # label_array[label_array == 0] = -2
         label = Image.fromarray(label_array, 'F')
 
         # Image transformation which is also expected to return a tensor. 
@@ -108,11 +110,6 @@ class self_supervised_power(Dataset):
             label = ToLabel()(label)
         elif self.tensor_type=='float':
             label = ToFloatLabel()(label)
-        # Remove 0.0 image regions from transform padding
-        ### NASTY THING, BREAKS CLASSIFICATION, REMOVE!!!!
-        # label[label == 0] = -1
-        ############################
-        # label[label == -2] = 0
 
         # Sanitize labels. 
         if self.file_format == "csv":

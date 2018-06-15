@@ -105,8 +105,9 @@ class MyCoTransform(object):
             input_crop = self.transform_augmentation(input, flip, rotation_angle, affine_angle, shear_angle)
             target_crop = self.transform_augmentation(target, flip, rotation_angle, affine_angle, shear_angle)
             # Do crop
-            input_crop = input_crop.crop((hor_pos, 480 - img_size[1]-y_bound_pix, hor_pos + img_size[0], 480-y_bound_pix))
-            target_crop = target_crop.crop((hor_pos, 480 - img_size[1]-y_bound_pix, hor_pos + img_size[0], 480-y_bound_pix))
+            crop_tuple = (hor_pos, 480 - img_size[1]-y_bound_pix, hor_pos + img_size[0], 480-y_bound_pix)
+            input_crop = input_crop.crop(crop_tuple)
+            target_crop = target_crop.crop(crop_tuple)
             target_test = np.array(target_crop, dtype="float32")
             # Make this condition proper for regression where we want > 0.0. Or fix border issues?!
             if np.any(target_test != -1):
@@ -625,7 +626,7 @@ def train(args, model_student, model_teacher, enc=False):
                 if args.classification:
                     writer.add_image("val/6_target", color_transform_classes(targets[0].cpu().data), step_vis_no)  
                 else:
-                    writer.add_image("val/6_target", color_transform_output(targets[0].cpu().data), step_vis_no)  
+                    writer.add_image("val/6_target", color_transform_target(targets[0].cpu().data), step_vis_no)  
                 print ("Time to paint images: ", time.time() - start_time_plot)
             # Plot histograms
             if args.force_n_classes > 0 and args.visualize and steps_hist > 0 and step % steps_hist == 0:
@@ -677,7 +678,7 @@ def train(args, model_student, model_teacher, enc=False):
         if args.classification:
             current_acc = sum(epoch_mean_acc_student_val) / len(epoch_mean_acc_student_val)
         else:   # regression
-            current_acc = -average_epoch_loss_val
+            current_acc = -avg_loss_student_val
 
         epoch_loss_student_val = []
         if args.mean_teacher:
@@ -688,8 +689,6 @@ def train(args, model_student, model_teacher, enc=False):
             if args.mean_teacher:
                 epoch_acc_teacher_val = []
                 epoch_mean_acc_teacher_val = []
-
-        average_epoch_loss_val = avg_loss_student_val
 
         is_best = current_acc > best_acc
         best_acc = max(current_acc, best_acc)
@@ -736,7 +735,7 @@ def train(args, model_student, model_teacher, enc=False):
         #SAVE TO FILE A ROW WITH THE EPOCH RESULT (train loss, val loss, train IoU, val IoU)
         #Epoch		Train-loss		Test-loss	Train-IoU	Test-IoU		learningRate
         with open(automated_log_path, "a") as myfile:
-            myfile.write("\n%d\t\t%.4f\t\t%.4f\t\t%.8f" % (epoch, average_epoch_loss_train, average_epoch_loss_val, usedLr ))
+            myfile.write("\n%d\t\t%.4f\t\t%.4f\t\t%.8f" % (epoch, average_epoch_loss_train, avg_loss_student_val, usedLr ))
     
     return(model_student, model_teacher)   #return model (convenience for encoder-decoder training)
 

@@ -26,7 +26,7 @@ class MSELossPosElements(torch.nn.Module):
         # cur_loss = self.loss(output_prob.expand(shape), targets.expand(shape))
         weighted_loss = cur_loss * output_prob
         # only compute loss for places where label exists.
-        masked_loss = weighted_loss.masked_select(torch.gt(targets, 0.0))
+        masked_loss = weighted_loss.masked_select(torch.ne(targets, -1.0))
         return masked_loss.mean()
 
 class L1LossClassProbMasked(torch.nn.Module):
@@ -43,7 +43,7 @@ class L1LossClassProbMasked(torch.nn.Module):
         # cur_loss = self.loss(output_prob.expand(shape), targets.expand(shape))
         weighted_loss = cur_loss * output_prob
         # only compute loss for places where label exists.
-        masked_loss = weighted_loss.sum(dim=1, keepdim=True).masked_select(torch.gt(targets, 0.0))
+        masked_loss = weighted_loss.sum(dim=1, keepdim=True).masked_select(torch.ne(targets, -1.0))
         return masked_loss.mean()
 
 class L1LossMasked(torch.nn.Module):
@@ -54,7 +54,7 @@ class L1LossMasked(torch.nn.Module):
         self.loss = torch.nn.L1Loss(False, False)
 
     def forward(self, outputs, targets):
-        return self.loss(outputs.squeeze(1), targets).masked_select(torch.gt(targets, 0.0)).mean()
+        return self.loss(outputs.squeeze(1), targets).masked_select(torch.ne(targets, -1.0)).mean()
 
 class L1LossTraversability(torch.nn.Module):
 
@@ -66,7 +66,7 @@ class L1LossTraversability(torch.nn.Module):
 
     def forward(self, outputs, targets):
         targets = targets.unsqueeze(1)
-        return (1-outputs[torch.ge(targets, 0.0)]).abs().mean() + (outputs[torch.lt(targets, 0.0)]).abs().mean()*self.non_trav_weight
+        return (1-outputs[torch.ne(targets, -1.0)]).abs().mean() + (outputs[torch.eq(targets, -1.0)]).abs().mean()*self.non_trav_weight
 
 
 class L1Loss(torch.nn.Module):
