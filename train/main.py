@@ -164,7 +164,7 @@ def train(args, model_student, model_teacher, enc=False):
             apply_softmax = True
         else:   # regression
             apply_softmax = False
-        color_transform_classes_prob = ColorizeClassesProb(args.force_n_classes, apply_softmax)  # Automatic color based on max class probability
+        color_transform_classes_prob = ColorizeClassesProb(args.force_n_classes)  # Automatic color based on max class probability
         color_transform_classes = ColorizeClasses(args.force_n_classes)  # Automatic color based on max class probability
 
     loader = DataLoader(dataset_train, num_workers=args.num_workers, batch_size=args.batch_size, shuffle=True)
@@ -377,11 +377,11 @@ def train(args, model_student, model_teacher, enc=False):
                 # Figure out and compute tensor to visualize. 
                 if args.force_n_classes > 0:
                     
-                    max_prob, vis_output = getMaxProbValue(output_student_prob[0].cpu().data, output_student_power[0].cpu().data)
+                    max_prob, vis_output = getMaxProbValue(output_student_prob[0].cpu().data, output_student_power[0].cpu().data, apply_softmax)
                     writer.add_image("train/2_classes_student", color_transform_classes_prob(output_student_prob[0].cpu().data), step_vis_no)
                     writer.add_image("train/3_max_class_probability_student", max_prob[0], step_vis_no)
                     if args.mean_teacher:
-                        max_prob_teacher, vis_output_teacher = getMaxProbValue(output_teacher_prob[0].cpu().data, output_teacher_power[0].cpu().data)
+                        max_prob_teacher, vis_output_teacher = getMaxProbValue(output_teacher_prob[0].cpu().data, output_teacher_power[0].cpu().data, apply_softmax)
                         writer.add_image("train/2_classes_teacher", color_transform_classes_prob(output_student_prob[0].cpu().data), step_vis_no)
                         writer.add_image("train/3_max_class_probability_teacher", max_prob_teacher[0], step_vis_no)
                     if args.regression:
@@ -560,10 +560,10 @@ def train(args, model_student, model_teacher, enc=False):
 
             if args.force_n_classes:
                 output_student_prob, output_student_power = model_student(inputs1) 
-                max_prob_student, output_student = getMaxProbValue(output_student_prob, output_student_power)
+                max_prob_student, output_student = getMaxProbValue(output_student_prob, output_student_power, apply_softmax)
                 if args.mean_teacher:
                     output_teacher_prob, output_teacher_power = model_teacher(inputs2) 
-                    max_prob_teacher, output_teacher = getMaxProbValue(output_teacher_prob, output_teacher_power)
+                    max_prob_teacher, output_teacher = getMaxProbValue(output_teacher_prob, output_teacher_power, apply_softmax)
                 # Compute weighted power consumption
                 if args.regression:
                     sum_dim = output_student_prob.dim()-3
@@ -607,26 +607,26 @@ def train(args, model_student, model_teacher, enc=False):
                 step_vis_no = total_steps_val + len(epoch_loss_student_val)
                 start_time_plot = time.time()
                 image1 = inputs1[0].cpu().data
-                writer.add_image("val/1_input_student", image1, step_vis_no)
+                writer.add_image("val/input_student", image1, step_vis_no)
                 if args.mean_teacher:
                     image2 = inputs2[0].cpu().data
-                    writer.add_image("val/1_input_teacher", image2, step_vis_no)
+                    writer.add_image("val/input_teacher", image2, step_vis_no)
                 if args.regression:
-                    writer.add_image("val/5_output_student", color_transform_output(output_student[0].cpu().data), step_vis_no)
+                    writer.add_image("val/output_student", color_transform_output(output_student[0].cpu().data), step_vis_no)
                     if args.mean_teacher:
-                        writer.add_image("val/5_output_teacher", color_transform_output(output_teacher[0].cpu().data), step_vis_no)
+                        writer.add_image("val/output_teacher", color_transform_output(output_teacher[0].cpu().data), step_vis_no)
                 if args.force_n_classes > 0:
-                    writer.add_image("val/2_classes_student", color_transform_classes_prob(output_student_prob[0].cpu().data), step_vis_no)
-                    writer.add_image("val/3_max_class_probability_student", max_prob_student[0], step_vis_no)
+                    writer.add_image("val/classes_student", color_transform_classes_prob(output_student_prob[0].cpu().data), step_vis_no)
+                    writer.add_image("val/max_class_probability_student", max_prob_student[0], step_vis_no)
                     if args.mean_teacher:
-                        writer.add_image("val/2_classes_teacher", color_transform_classes_prob(output_teacher_prob[0].cpu().data), step_vis_no)
-                        writer.add_image("val/3_max_class_probability_teacher", max_prob_teacher[0], step_vis_no)
+                        writer.add_image("val/classes_teacher", color_transform_classes_prob(output_teacher_prob[0].cpu().data), step_vis_no)
+                        writer.add_image("val/max_class_probability_teacher", max_prob_teacher[0], step_vis_no)
                     if args.regression:
-                        writer.add_image("val/4_weighted_output_student", color_transform_output(weighted_sum_output[0].cpu().data), step_vis_no)
+                        writer.add_image("val/weighted_output_student", color_transform_output(weighted_sum_output[0].cpu().data), step_vis_no)
                 if args.classification:
-                    writer.add_image("val/6_target", color_transform_classes(targets[0].cpu().data), step_vis_no)  
+                    writer.add_image("val/target", color_transform_classes(targets[0].cpu().data), step_vis_no)
                 else:
-                    writer.add_image("val/6_target", color_transform_target(targets[0].cpu().data), step_vis_no)  
+                    writer.add_image("val/target", color_transform_target(targets[0].cpu().data), step_vis_no)
                 print ("Time to paint images: ", time.time() - start_time_plot)
             # Plot histograms
             if args.force_n_classes > 0 and args.visualize and steps_hist > 0 and step % steps_hist == 0:
@@ -636,12 +636,14 @@ def train(args, model_student, model_teacher, enc=False):
                 _, hist_array = output_student_prob[0].cpu().data.max(dim=0, keepdim=True)
                 writer.add_histogram("val/hist_"+str(hist_ind), hist_array.numpy().flatten(), total_steps_train, hist_bins)  # Use train steps so we can compare with class power plot
 
-                writer.add_image("val/classes_student_"+str(hist_ind), color_transform_classes_prob(output_student_prob[0].cpu().data), total_steps_train)
+                writer.add_image("val_"+str(hist_ind)+"/classes_student", color_transform_classes_prob(output_student_prob[0].cpu().data), total_steps_train)
+                writer.add_image("val_"+str(hist_ind)+"/max_class_probability_student", max_prob_student[0], total_steps_train)
                 if args.mean_teacher:
-                    writer.add_image("val/classes_teacher_"+str(hist_ind), color_transform_classes_prob(output_teacher_prob[0].cpu().data), total_steps_train)
+                    writer.add_image("val_"+str(hist_ind)+"/classes_teacher", color_transform_classes_prob(output_teacher_prob[0].cpu().data), total_steps_train)
+                    writer.add_image("val_"+str(hist_ind)+"/max_class_probability_teacher", max_prob_teacher[0], total_steps_train)
 
                 if epoch == start_epoch:
-                    writer.add_image("val/hist/input_"+str(hist_ind), image1, total_steps_train)  # Visualize image used to compute histogram
+                    writer.add_image("val_"+str(hist_ind)+"/input", image1, total_steps_train)  # Visualize image used to compute histogram
                        
         total_steps_val += len(epoch_loss_student_val)
         avg_loss_student_val = sum(epoch_loss_student_val) / len(epoch_loss_student_val)

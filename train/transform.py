@@ -179,8 +179,10 @@ class Colorize:
 # tensor is assumed to be shape [1, C, 1, 1]
 # prob should be shape [..., N x C x H x W]
 # returns tensor with max probability [..., N x H x W] and value of class with max probability [..., H x W]
-def getMaxProbValue(prob, tensor):
+def getMaxProbValue(prob, tensor, apply_softmax=False):
     channel_dim = prob.dim() - 3
+    if apply_softmax:
+        prob = torch.nn.functional.softmax(prob, dim=channel_dim)
     max_prob, max_ind = prob.max(dim=channel_dim, keepdim=True)
     return max_prob, (tensor.expand(prob.size())).gather(channel_dim, max_ind)
 
@@ -226,13 +228,10 @@ class ColorizeClasses:
 
 class ColorizeClassesProb(ColorizeClasses):
 
-    def __init__(self, n=22, apply_softmax=False):
+    def __init__(self, n=22):
         super().__init__(n)
-        self.apply_softmax = apply_softmax
 
     def __call__(self, prob):
-        if self.apply_softmax:
-            prob = torch.nn.functional.softmax(prob, dim=0)
         gray_image = prob.argmax(dim=0)
         
         return super().__call__(gray_image)
