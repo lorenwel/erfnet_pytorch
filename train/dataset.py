@@ -47,6 +47,7 @@ class self_supervised_power(Dataset):
     def __init__(self, root, co_transform, subset='train', file_format="npy", label_name="0", subsample=1, tensor_type='long'):
         self.images_root = os.path.join(root, subset)
         self.labels_root = os.path.join(root, subset)
+        valid_root = os.path.join(root, subset)   # These files are used to check valid labels
         self.file_format = file_format
         self.label_name = label_name
         self.tensor_type = tensor_type
@@ -59,13 +60,18 @@ class self_supervised_power(Dataset):
             print("Using every ", subsample, "th image")
 
 
+        filenamesValid = [os.path.join(dp, f) for dp, dn, fn in os.walk(os.path.expanduser(self.images_root), followlinks=True) for f in fn if is_self_supervised_label(f, ext=self.file_format, label_name='class')]
+        filenamesValid.sort()
+
+
+        if subsample > 1:
+            filenamesValid = [val for ind, val in enumerate(filenamesValid) if ind % subsample == 0] # Subsample.
+
+        base_filenames = [split_first_subname(image_basename(val)) for val in filenamesValid]
+
         filenamesGt = [os.path.join(dp, f) for dp, dn, fn in os.walk(os.path.expanduser(self.images_root), followlinks=True) for f in fn if is_self_supervised_label(f, ext=self.file_format, label_name=self.label_name)]
-        filenamesGt.sort()
-
-        filenamesGt = [val for ind, val in enumerate(filenamesGt) if ind % subsample == 0] # Subsample.
-
-        self.filenamesGt = filenamesGt
-        base_filenames = [split_first_subname(image_basename(val)) for val in self.filenamesGt]
+        self.filenamesGt = [val for val in filenamesGt if split_first_subname(image_basename(val)) in base_filenames]
+        self.filenamesGt.sort()
         print ("Found " + str(len(self.filenamesGt)) + " labels.")
 
         filenames = [os.path.join(dp, f) for dp, dn, fn in os.walk(os.path.expanduser(self.images_root), followlinks=True) for f in fn if is_self_supervised_image(f)]

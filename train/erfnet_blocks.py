@@ -112,14 +112,14 @@ class SoftMaxConv (nn.Module):
 
 
 class DecoderBlock (nn.Module):
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels, out_channels, use_dropout=False):
         super().__init__()
 
         self.layers = nn.ModuleList()
 
         self.layers.append(UpsamplerBlock(in_channels, out_channels))
-        self.layers.append(non_bottleneck_1d(out_channels, 0, 1))
-        self.layers.append(non_bottleneck_1d(out_channels, 0, 1))
+        self.layers.append(non_bottleneck_1d(out_channels, 0, 1, use_dropout=use_dropout))
+        self.layers.append(non_bottleneck_1d(out_channels, 0, 1, use_dropout=use_dropout))
 
     def forward(self, input):
         output = input
@@ -132,10 +132,10 @@ class DecoderBlock (nn.Module):
 
 
 class LadderBlock(nn.Module):
-    def __init__(self, noutput, use_batchnorm=False):
+    def __init__(self, noutput, use_batchnorm=False, use_dropout=False):
         super().__init__()
         self.use_batchnorm = use_batchnorm
-        self.layer = non_bottleneck_1d(2*noutput, 0.03, 1)
+        self.layer = non_bottleneck_1d(2*noutput, 0.03, 1, use_dropout=use_dropout)
         self.conv = nn.Conv2d(2*noutput, noutput, 3, stride=1, padding=1, bias=True)
         self.bn = nn.BatchNorm2d(noutput, eps=1e-3)
 

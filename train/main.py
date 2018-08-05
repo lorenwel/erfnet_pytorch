@@ -42,7 +42,7 @@ NUM_IMG_PER_EPOCH = 5
 # Optimizer params.
 LEARNING_RATE=5e-4
 BETAS=(0.9, 0.999)
-OPT_EPS=1e-08
+OPT_EPS=1e-04
 WEIGHT_DECAY=1e-6
 
 DISCOUNT_RATE_START=0.1
@@ -232,7 +232,6 @@ def train(args, model_student, model_teacher, enc=False):
     scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda1)                             ## scheduler 2
     
     if args.visualize:
-        board = Dashboard(args.port)
         writer = SummaryWriter()
         log_base_dir = writer.file_writer.get_logdir() + "/"
         print("Saving tensorboard log to: " + log_base_dir)
@@ -805,30 +804,29 @@ def main(args):
 
 if __name__ == '__main__':
     parser = ArgumentParser()
-    parser.add_argument('--cuda', action='store_true', default=True)  #NOTE: cpu-only has not been tested so you might have to change code if you deactivate this flag
-    parser.add_argument('--model', default="erfnet_classification")
+    parser.add_argument('--cuda', action='store_true', default=True, help="Use CUDA")  #NOTE: cpu-only has not been tested so you might have to change code if you deactivate this flag
+    parser.add_argument('--model', default="erfnet_classification", help="Model name to be used")
 
-    parser.add_argument('--port', type=int, default=8097)
-    parser.add_argument('--datadir', default=os.getenv("HOME") + "/datasets/cityscapes/")
-    parser.add_argument('--height', type=int, default=512)
-    parser.add_argument('--num-epochs', type=int, default=150)
-    parser.add_argument('--num-workers', type=int, default=4)
-    parser.add_argument('--batch-size', type=int, default=6)
-    parser.add_argument('--epochs-save', type=int, default=10)    #You can use this value to save model every X epochs
-    parser.add_argument('--savedir', required=True)
-    parser.add_argument('--pretrainedEncoder') #, default="../trained_models/erfnet_encoder_pretrained.pth.tar")
-    parser.add_argument('--pretrained') #, default="../trained_models/erfnet_encoder_pretrained.pth.tar")
-    parser.add_argument('--visualize', action='store_true')
-    parser.add_argument('--force-n-classes', type=int, default=0)   # Force network to discretize output into classes with discrete output power
-    parser.add_argument('--spread-init', action='store_true', default=False)    # Spread initial class power over interval [0.7,...,2.0]
-    parser.add_argument('--fix-class-power', action='store_true', default=False)    # Fix class power so that it is not optimized
-    parser.add_argument('--late-dropout-prob', type=float, default=0.1)    # Specify dropout prob in last layer after softmax
-    parser.add_argument('--subsample', type=int, default=1) # Only use every nth image of a dataset.
-    parser.add_argument('--mean-teacher', action='store_true', default=False)    # Disable mean teacher
-    parser.add_argument('--regression', action='store_true', default=False) # Plot power consumption or whatever scalar value
-    parser.add_argument('--classification', action='store_true', default=False) # Plot power consumption or whatever scalar value
-    parser.add_argument('--label-name', type=str, default="class")
+    parser.add_argument('--datadir', default=os.getenv("HOME") + "/datasets/cityscapes/", help="Directory for dataset")
+    parser.add_argument('--height', type=int, default=512, help="Height of input images")
+    parser.add_argument('--num-epochs', type=int, default=150, help="Number of epochs before termination")
+    parser.add_argument('--num-workers', type=int, default=8, help="Number of data loader workers")
+    parser.add_argument('--batch-size', type=int, default=1, help="Batch size for train/eval")   
+    parser.add_argument('--epochs-save', type=int, default=10, help="Save network every N epochs")    #You can use this value to save model every X epochs
+    parser.add_argument('--savedir', required=True, help="Output dir for saving network")
+    parser.add_argument('--pretrainedEncoder', help="File path to pretrained encoder") #, default="../trained_models/erfnet_encoder_pretrained.pth.tar")
+    parser.add_argument('--pretrained', help="File path to pretrained network") #, default="../trained_models/erfnet_encoder_pretrained.pth.tar")
+    parser.add_argument('--visualize', action='store_true', help="Visualize network output")
+    parser.add_argument('--force-n-classes', type=int, default=0, help="Force network to discretize output into N classes")   # Force network to discretize output into classes with discrete output power
+    parser.add_argument('--spread-init', action='store_true', default=False, help="Initialize class values with a spread")    # Spread initial class power over interval [0.7,...,2.0]
+    parser.add_argument('--fix-class-power', action='store_true', default=False, help="Fix class values and only learn class membership")    # Fix class power so that it is not optimized
+    parser.add_argument('--late-dropout-prob', type=float, default=0.1, help="Dropout probability in last layer if class discretization is used")    # Specify dropout prob in last layer after softmax
+    parser.add_argument('--subsample', type=int, default=1, help="Only use every nth image of the dataset") # Only use every nth image of a dataset.
+    parser.add_argument('--mean-teacher', action='store_true', default=False, help="Use mean-teacher for training")    # Disable mean teacher
+    parser.add_argument('--regression', action='store_true', default=False, help="Training for a regression problem (can also have discretized classes)") # Plot power consumption or whatever scalar value
+    parser.add_argument('--classification', action='store_true', default=False, help="Training for a classification problem.") # Plot power consumption or whatever scalar value
+    parser.add_argument('--label-name', type=str, default="class", help="Suffix for label file names")
 
-    parser.add_argument('--resume', action='store_true')    #Use this flag to load last checkpoint for training  
+    parser.add_argument('--resume', action='store_true', help="Resume from previous checkpoint")    #Use this flag to load last checkpoint for training  
 
     main(parser.parse_args())
