@@ -38,7 +38,7 @@ from shutil import copyfile
 NUM_CHANNELS = 3
 # NUM_CLASSES = 20 #pascal=22, cityscapes=20
 NUM_HISTOGRAMS = 5
-NUM_IMG_PER_EPOCH = 5
+NUM_IMG_PER_EPOCH = 10
 # Optimizer params.
 LEARNING_RATE=5e-4
 BETAS=(0.9, 0.999)
@@ -50,8 +50,8 @@ DISCOUNT_RATE=0.01
 MAX_CONSISTENCY_EPOCH=30
 DISCOUNT_RATE_START_EPOCH=50
 
-color_transform_target = Colorize(1.0, 2.0, remove_negative=True, extend=True, white_val=1.0)  # min_val, max_val, remove negative
-color_transform_output = Colorize(1.0, 2.0, remove_negative=False, extend=True, white_val=1.0)  # Automatic color based on tensor min/max val
+color_transform_target = Colorize(0.0, 2.0, remove_negative=True, extend=True, white_val=1.0)  # min_val, max_val, remove negative
+color_transform_output = Colorize(0.0, 2.0, remove_negative=False, extend=True, white_val=1.0)  # Automatic color based on tensor min/max val
 # color_transform_output = ColorizeMinMax()  # Automatic color based on tensor min/max val
 image_transform = ToPILImage()
 
@@ -202,8 +202,9 @@ def train(args, model_student, model_teacher, enc=False):
 
 
     #TODO: reduce memory in first gpu: https://discuss.pytorch.org/t/multi-gpu-training-memory-usage-in-balance/4163/4        #https://github.com/pytorch/pytorch/issues/1893
-
-    optimizer = Adam(model_student.parameters(), LEARNING_RATE, BETAS,  eps=OPT_EPS, weight_decay=WEIGHT_DECAY)
+    # Ignore the class_power parameter if we fix class power.
+    opt_params = [param for key, param in model_student.named_parameters() if not args.fix_class_power or 'class_power' not in key]
+    optimizer = Adam(opt_params, LEARNING_RATE, BETAS,  eps=OPT_EPS, weight_decay=WEIGHT_DECAY)
 
     start_epoch = 1
 
@@ -779,8 +780,8 @@ def main(args):
         if (not args.cuda):
             pretrainedEnc = pretrainedEnc.cpu()     #because loaded encoder is probably saved in cuda
     
-    model_student = model_file.Net( encoder=pretrainedEnc, softmax_classes=args.force_n_classes, spread_class_power=args.spread_init, fix_class_power=args.fix_class_power, late_dropout_prob=args.late_dropout_prob)  #Add decoder to encoder
-    model_teacher = model_file.Net( encoder=pretrainedEnc, softmax_classes=args.force_n_classes, spread_class_power=args.spread_init, fix_class_power=args.fix_class_power, late_dropout_prob=args.late_dropout_prob)  #Add decoder to encoder
+    model_student = model_file.Net( encoder=pretrainedEnc, softmax_classes=args.force_n_classes, spread_class_power=args.spread_init, late_dropout_prob=args.late_dropout_prob)  #Add decoder to encoder
+    model_teacher = model_file.Net( encoder=pretrainedEnc, softmax_classes=args.force_n_classes, spread_class_power=args.spread_init, late_dropout_prob=args.late_dropout_prob)  #Add decoder to encoder
 
     if args.pretrained:
         pretrained = torch.load(args.pretrained)['state_dict']
@@ -795,9 +796,6 @@ def main(args):
         model_student = make_cuda(model_student)
         model_teacher = make_cuda(model_teacher)
 
-    if args.fix_class_power:
-        model_student.module.update_fixed_class_power()
-        model_teacher.module.update_fixed_class_power()
     #When loading encoder reinitialize weights for decoder because they are set to 0 when training dec
     model_student, model_teacher = train(args, model_student, model_teacher, False)   #Train decoder
     print("========== TRAINING FINISHED ===========")
