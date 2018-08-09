@@ -79,11 +79,13 @@ class Decoder (nn.Module):
 class Net(nn.Module):
     def __init__(self, encoder=None, 
                        softmax_classes=0, 
+                       gaussian_classes=False,
                        spread_class_power=False, 
                        late_dropout_prob=0.1):  #use encoder to pass pretrained encoder
         super().__init__()
 
         self.softmax_classes = softmax_classes
+        self.gaussian_classes = gaussian_classes
 
         # Initialize class power consumption only when we have discretized into classes. 
         use_dropout = False
@@ -99,6 +101,7 @@ class Net(nn.Module):
                 init_tensor = torch.ones(1,softmax_classes,1,1)
 
             self.class_power = torch.nn.Parameter(init_tensor)
+            self.class_power_var = torch.nn.Parameter(torch.ones(1,softmax_classes,1,1))
 
 
         if (encoder == None):
@@ -112,6 +115,9 @@ class Net(nn.Module):
         enc1, enc2, enc3 = self.encoder(input)
         output_scalar = self.decoder.forward(enc1, enc2, enc3)
         if self.softmax_classes > 0:
-            return output_scalar, self.class_power
+            if self.gaussian_classes:
+                return output_scalar, self.class_power, self.class_power_var
+            else:
+                return output_scalar, self.class_power
         else:
             return output_scalar

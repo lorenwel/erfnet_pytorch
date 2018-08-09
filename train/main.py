@@ -173,7 +173,10 @@ def train(args, model_student, model_teacher, enc=False):
     # Set Loss functions
     if args.regression:
         if args.force_n_classes > 0:
-            criterion = L1LossClassProbMasked() # L1 loss weighted with class prob with averaging over mini-batch
+            if args.gaussian_classes:
+                criterion = LogLikelihoodLossClassProbMasked()
+            else:
+                criterion = L1LossClassProbMasked() # L1 loss weighted with class prob with averaging over mini-batch
         else:
             criterion = L1LossMasked()     
     elif args.classification:
@@ -306,9 +309,14 @@ def train(args, model_student, model_teacher, enc=False):
 
             if (args.force_n_classes) > 0:  # Captures both classification and regression with forced classes. 
                 # Forced into discrete classes. 
-                output_student_prob, output_student_power = model_student(inputs1)
-                if args.mean_teacher:
-                    output_teacher_prob, output_teacher_power = model_teacher(inputs2)
+                if args.gaussian_classes:
+                    output_student_prob, output_student_power, output_student_power_var = model_student(inputs1)
+                    if args.mean_teacher:
+                        output_teacher_prob, output_teacher_power, output_teacher_power_var = model_teacher(inputs2)
+                else:
+                    output_student_prob, output_student_power = model_student(inputs1)
+                    if args.mean_teacher:
+                        output_teacher_prob, output_teacher_power = model_teacher(inputs2)
 
                 optimizer.zero_grad()
 
@@ -317,9 +325,14 @@ def train(args, model_student, model_teacher, enc=False):
                     if args.mean_teacher:
                         loss_teacher_pred = criterion(output_teacher_prob, targets)
                 else:   # regression
-                    loss_student_pred = criterion(output_student_prob, output_student_power, targets)
-                    if args.mean_teacher:
-                        loss_teacher_pred = criterion(output_teacher_prob, output_teacher_power, targets)
+                    if args.gaussian_classes:
+                        loss_student_pred = criterion(output_student_prob, output_student_power, output_student_power_var, targets)
+                        if args.mean_teacher:
+                            loss_teacher_pred = criterion(output_teacher_prob, output_teacher_power, output_teacher_power_var, targets)
+                    else:
+                        loss_student_pred = criterion(output_student_prob, output_student_power, targets)
+                        if args.mean_teacher:
+                            loss_teacher_pred = criterion(output_teacher_prob, output_teacher_power, targets)
 
                 if args.mean_teacher:
                     loss_consistency = criterion_consistency(output_student_prob, output_teacher_prob, cur_consistency_weight)
@@ -494,11 +507,21 @@ def train(args, model_student, model_teacher, enc=False):
             for ind, val in enumerate(output_student_power.squeeze()):
                 power_dict[str(ind)] = val
             writer.add_scalars("params/class_cost_student", power_dict, total_steps_train)
+            if args.gaussian_classes:
+                var_dict = {}
+                for ind, val in enumerate(output_student_power_var.squeeze()):
+                    var_dict[str(ind)] = val.sqrt()
+                writer.add_scalars("params/class_cost_var_student", var_dict, total_steps_train)
             if args.mean_teacher:
                 power_dict = {}
                 for ind, val in enumerate(output_teacher_power.squeeze()):
                     power_dict[str(ind)] = val
                 writer.add_scalars("params/class_cost_teacher", power_dict, total_steps_train)
+                if args.gaussian_classes:
+                    var_dict = {}
+                    for ind, val in enumerate(output_teacher_power_var.squeeze()):
+                        var_dict[str(ind)] = val.sqrt()
+                    writer.add_scalars("params/class_cost_var_teacher", var_dict, total_steps_train)
 
 
         # Clear loss for next loss print iteration.
@@ -553,97 +576,109 @@ def train(args, model_student, model_teacher, enc=False):
                     images2 = images2.cuda()
                 labels = labels.cuda()
  
-            inputs1 = Variable(images1, volatile=True)    #volatile flag makes it free backward or outputs for eval
-            if args.mean_teacher:
-                inputs2 = Variable(images2, volatile=True)    #volatile flag makes it free backward or outputs for eval
-            targets = Variable(labels, volatile=True)
+            with torch.no_grad():
+                inputs1 = Variable(images1)    
+                if args.mean_teacher:
+                    inputs2 = Variable(images2)    
+                targets = Variable(labels)
 
-            if args.force_n_classes:
-                output_student_prob, output_student_power = model_student(inputs1) 
-                max_prob_student, output_student = getMaxProbValue(output_student_prob, output_student_power, apply_softmax)
-                if args.mean_teacher:
-                    output_teacher_prob, output_teacher_power = model_teacher(inputs2) 
-                    max_prob_teacher, output_teacher = getMaxProbValue(output_teacher_prob, output_teacher_power, apply_softmax)
-                # Compute weighted power consumption
-                if args.regression:
-                    sum_dim = output_student_prob.dim()-3
-                    weighted_sum_output = (output_student_prob * output_student_power).sum(dim=sum_dim, keepdim=True)
-            else:
-                output_student = model_student(inputs1)
-                if args.mean_teacher:
-                    output_teacher = model_teacher(inputs2)
-
-            if args.force_n_classes > 0:
-                if args.classification:
-                    loss_student = criterion_val(output_student_prob, targets)
+                if args.force_n_classes:
+                    if args.gaussian_classes:
+                        output_student_prob, output_student_power, output_student_power_var = model_student(inputs1) 
+                    else:
+                        output_student_prob, output_student_power = model_student(inputs1) 
+                    max_prob_student, output_student = getMaxProbValue(output_student_prob, output_student_power, apply_softmax)
                     if args.mean_teacher:
-                        loss_teacher = criterion_val(output_teacher_prob, targets)
-                else:   # regression
-                    loss_student = criterion_val(output_student_prob, output_student_power, targets)
-                    if args.mean_teacher:
-                        loss_teacher = criterion_val(output_teacher_prob, output_teacher_power, targets)
-            else :
-                loss_student = criterion_val(output_student, targets)
-                if args.mean_teacher:
-                    loss_teacher = criterion_val(output_teacher, targets)
-            epoch_loss_student_val.append(loss_student.data.item())
-            if args.mean_teacher:
-                epoch_loss_teacher_val.append(loss_teacher.data.item())
-            if args.classification:
-                acc_student = criterion_acc(output_student_prob, targets)
-                mean_acc_student, epoch_class_acc_student_val[step,:] = criterion_mean_acc(output_student_prob, targets)
-                epoch_acc_student_val.append(acc_student.data.item())
-                epoch_mean_acc_student_val.append(mean_acc_student.data.item())
-                if args.mean_teacher:
-                    acc_teacher = criterion_acc(output_teacher_prob, targets)
-                    mean_acc_teacher, epoch_class_acc_teacher_val[step,:] = criterion_mean_acc(output_teacher_prob, targets)
-                    epoch_acc_teacher_val.append(acc_teacher.data.item())
-                    epoch_mean_acc_teacher_val.append(mean_acc_teacher.data.item())
-            time_val.append(time.time() - start_time)
-
-            # Plot images
-            if args.visualize and step % steps_img_val == 0:
-                
-                step_vis_no = total_steps_val + len(epoch_loss_student_val)
-                start_time_plot = time.time()
-                image1 = inputs1[0].cpu().data
-                writer.add_image("val/input_student", image1, step_vis_no)
-                if args.mean_teacher:
-                    image2 = inputs2[0].cpu().data
-                    writer.add_image("val/input_teacher", image2, step_vis_no)
-                if args.regression:
-                    writer.add_image("val/output_student", color_transform_output(output_student[0].cpu().data), step_vis_no)
-                    if args.mean_teacher:
-                        writer.add_image("val/output_teacher", color_transform_output(output_teacher[0].cpu().data), step_vis_no)
-                if args.force_n_classes > 0:
-                    writer.add_image("val/classes_student", color_transform_classes_prob(output_student_prob[0].cpu().data), step_vis_no)
-                    writer.add_image("val/max_class_probability_student", max_prob_student[0], step_vis_no)
-                    if args.mean_teacher:
-                        writer.add_image("val/classes_teacher", color_transform_classes_prob(output_teacher_prob[0].cpu().data), step_vis_no)
-                        writer.add_image("val/max_class_probability_teacher", max_prob_teacher[0], step_vis_no)
+                        if args.gaussian_classes:
+                            output_teacher_prob, output_teacher_power, output_teacher_power_var = model_teacher(inputs2) 
+                        else:
+                            output_teacher_prob, output_teacher_power = model_teacher(inputs2) 
+                        max_prob_teacher, output_teacher = getMaxProbValue(output_teacher_prob, output_teacher_power, apply_softmax)
+                    # Compute weighted power consumption
                     if args.regression:
-                        writer.add_image("val/weighted_output_student", color_transform_output(weighted_sum_output[0].cpu().data), step_vis_no)
-                if args.classification:
-                    writer.add_image("val/target", color_transform_classes(targets[0].cpu().data), step_vis_no)
+                        sum_dim = output_student_prob.dim()-3
+                        weighted_sum_output = (output_student_prob * output_student_power).sum(dim=sum_dim, keepdim=True)
                 else:
-                    writer.add_image("val/target", color_transform_target(targets[0].cpu().data), step_vis_no)
-                print ("Time to paint images: ", time.time() - start_time_plot)
-            # Plot histograms
-            if args.force_n_classes > 0 and args.visualize and steps_hist > 0 and step % steps_hist == 0:
-                image1 = inputs1[0].cpu().data
+                    output_student = model_student(inputs1)
+                    if args.mean_teacher:
+                        output_teacher = model_teacher(inputs2)
 
-                hist_ind = int(step / steps_hist)
-                _, hist_array = output_student_prob[0].cpu().data.max(dim=0, keepdim=True)
-                writer.add_histogram("val/hist_"+str(hist_ind), hist_array.numpy().flatten(), total_steps_train, hist_bins)  # Use train steps so we can compare with class power plot
-
-                writer.add_image("val_"+str(hist_ind)+"/classes_student", color_transform_classes_prob(output_student_prob[0].cpu().data), total_steps_train)
-                writer.add_image("val_"+str(hist_ind)+"/max_class_probability_student", max_prob_student[0], total_steps_train)
+                if args.force_n_classes > 0:
+                    if args.classification:
+                        loss_student = criterion_val(output_student_prob, targets)
+                        if args.mean_teacher:
+                            loss_teacher = criterion_val(output_teacher_prob, targets)
+                    else:   # regression
+                        if args.gaussian_classes:
+                            loss_student = criterion_val(output_student_prob, output_student_power, output_student_power_var, targets)
+                            if args.mean_teacher:
+                                loss_teacher = criterion_val(output_teacher_prob, output_teacher_power, output_teacher_power_var, targets)
+                        else:
+                            loss_student = criterion_val(output_student_prob, output_student_power, targets)
+                            if args.mean_teacher:
+                                loss_teacher = criterion_val(output_teacher_prob, output_teacher_power, targets)
+                else :
+                    loss_student = criterion_val(output_student, targets)
+                    if args.mean_teacher:
+                        loss_teacher = criterion_val(output_teacher, targets)
+                epoch_loss_student_val.append(loss_student.data.item())
                 if args.mean_teacher:
-                    writer.add_image("val_"+str(hist_ind)+"/classes_teacher", color_transform_classes_prob(output_teacher_prob[0].cpu().data), total_steps_train)
-                    writer.add_image("val_"+str(hist_ind)+"/max_class_probability_teacher", max_prob_teacher[0], total_steps_train)
+                    epoch_loss_teacher_val.append(loss_teacher.data.item())
+                if args.classification:
+                    acc_student = criterion_acc(output_student_prob, targets)
+                    mean_acc_student, epoch_class_acc_student_val[step,:] = criterion_mean_acc(output_student_prob, targets)
+                    epoch_acc_student_val.append(acc_student.data.item())
+                    epoch_mean_acc_student_val.append(mean_acc_student.data.item())
+                    if args.mean_teacher:
+                        acc_teacher = criterion_acc(output_teacher_prob, targets)
+                        mean_acc_teacher, epoch_class_acc_teacher_val[step,:] = criterion_mean_acc(output_teacher_prob, targets)
+                        epoch_acc_teacher_val.append(acc_teacher.data.item())
+                        epoch_mean_acc_teacher_val.append(mean_acc_teacher.data.item())
+                time_val.append(time.time() - start_time)
 
-                if epoch == start_epoch:
-                    writer.add_image("val_"+str(hist_ind)+"/input", image1, total_steps_train)  # Visualize image used to compute histogram
+                # Plot images
+                if args.visualize and step % steps_img_val == 0:
+                    
+                    step_vis_no = total_steps_val + len(epoch_loss_student_val)
+                    start_time_plot = time.time()
+                    image1 = inputs1[0].cpu().data
+                    writer.add_image("val/input_student", image1, step_vis_no)
+                    if args.mean_teacher:
+                        image2 = inputs2[0].cpu().data
+                        writer.add_image("val/input_teacher", image2, step_vis_no)
+                    if args.regression:
+                        writer.add_image("val/output_student", color_transform_output(output_student[0].cpu().data), step_vis_no)
+                        if args.mean_teacher:
+                            writer.add_image("val/output_teacher", color_transform_output(output_teacher[0].cpu().data), step_vis_no)
+                    if args.force_n_classes > 0:
+                        writer.add_image("val/classes_student", color_transform_classes_prob(output_student_prob[0].cpu().data), step_vis_no)
+                        writer.add_image("val/max_class_probability_student", max_prob_student[0], step_vis_no)
+                        if args.mean_teacher:
+                            writer.add_image("val/classes_teacher", color_transform_classes_prob(output_teacher_prob[0].cpu().data), step_vis_no)
+                            writer.add_image("val/max_class_probability_teacher", max_prob_teacher[0], step_vis_no)
+                        if args.regression:
+                            writer.add_image("val/weighted_output_student", color_transform_output(weighted_sum_output[0].cpu().data), step_vis_no)
+                    if args.classification:
+                        writer.add_image("val/target", color_transform_classes(targets[0].cpu().data), step_vis_no)
+                    else:
+                        writer.add_image("val/target", color_transform_target(targets[0].cpu().data), step_vis_no)
+                    print ("Time to paint images: ", time.time() - start_time_plot)
+                # Plot histograms
+                if args.force_n_classes > 0 and args.visualize and steps_hist > 0 and step % steps_hist == 0:
+                    image1 = inputs1[0].cpu().data
+
+                    hist_ind = int(step / steps_hist)
+                    _, hist_array = output_student_prob[0].cpu().data.max(dim=0, keepdim=True)
+                    writer.add_histogram("val/hist_"+str(hist_ind), hist_array.numpy().flatten(), total_steps_train, hist_bins)  # Use train steps so we can compare with class power plot
+
+                    writer.add_image("val_"+str(hist_ind)+"/classes_student", color_transform_classes_prob(output_student_prob[0].cpu().data), total_steps_train)
+                    writer.add_image("val_"+str(hist_ind)+"/max_class_probability_student", max_prob_student[0], total_steps_train)
+                    if args.mean_teacher:
+                        writer.add_image("val_"+str(hist_ind)+"/classes_teacher", color_transform_classes_prob(output_teacher_prob[0].cpu().data), total_steps_train)
+                        writer.add_image("val_"+str(hist_ind)+"/max_class_probability_teacher", max_prob_teacher[0], total_steps_train)
+
+                    if epoch == start_epoch:
+                        writer.add_image("val_"+str(hist_ind)+"/input", image1, total_steps_train)  # Visualize image used to compute histogram
                        
         total_steps_val += len(epoch_loss_student_val)
         avg_loss_student_val = sum(epoch_loss_student_val) / len(epoch_loss_student_val)
@@ -780,8 +815,8 @@ def main(args):
         if (not args.cuda):
             pretrainedEnc = pretrainedEnc.cpu()     #because loaded encoder is probably saved in cuda
     
-    model_student = model_file.Net( encoder=pretrainedEnc, softmax_classes=args.force_n_classes, spread_class_power=args.spread_init, late_dropout_prob=args.late_dropout_prob)  #Add decoder to encoder
-    model_teacher = model_file.Net( encoder=pretrainedEnc, softmax_classes=args.force_n_classes, spread_class_power=args.spread_init, late_dropout_prob=args.late_dropout_prob)  #Add decoder to encoder
+    model_student = model_file.Net( encoder=pretrainedEnc, softmax_classes=args.force_n_classes, gaussian_classes=args.gaussian_classes, spread_class_power=args.spread_init, late_dropout_prob=args.late_dropout_prob)  #Add decoder to encoder
+    model_teacher = model_file.Net( encoder=pretrainedEnc, softmax_classes=args.force_n_classes, gaussian_classes=args.gaussian_classes, spread_class_power=args.spread_init, late_dropout_prob=args.late_dropout_prob)  #Add decoder to encoder
 
     if args.pretrained:
         pretrained = torch.load(args.pretrained)['state_dict']
@@ -816,6 +851,7 @@ if __name__ == '__main__':
     parser.add_argument('--pretrained', help="File path to pretrained network") #, default="../trained_models/erfnet_encoder_pretrained.pth.tar")
     parser.add_argument('--visualize', action='store_true', help="Visualize network output")
     parser.add_argument('--force-n-classes', type=int, default=0, help="Force network to discretize output into N classes")   # Force network to discretize output into classes with discrete output power
+    parser.add_argument('--gaussian-classes', action='store_true', default=False, help="Estimate class value variance")   # Learn a Gaussian for every class instead of just mean.
     parser.add_argument('--spread-init', action='store_true', default=False, help="Initialize class values with a spread")    # Spread initial class power over interval [0.7,...,2.0]
     parser.add_argument('--fix-class-power', action='store_true', default=False, help="Fix class values and only learn class membership")    # Fix class power so that it is not optimized
     parser.add_argument('--late-dropout-prob', type=float, default=0.1, help="Dropout probability in last layer if class discretization is used")    # Specify dropout prob in last layer after softmax

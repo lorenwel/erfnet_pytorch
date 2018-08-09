@@ -46,6 +46,26 @@ class L1LossClassProbMasked(torch.nn.Module):
         masked_loss = weighted_loss.sum(dim=1, keepdim=True).masked_select(torch.ne(targets, -1.0))
         return masked_loss.mean()
 
+class LogLikelihoodLossClassProbMasked(torch.nn.Module):
+    # This loss ignores the 1/2 factor of the "proper" likelihood function
+
+    def __init__(self):
+        super().__init__()
+
+        self.loss = torch.nn.MSELoss(False, False)
+
+    def forward(self, output_prob, output_cost, output_var, targets):
+        targets = targets.unsqueeze(1)
+        shape = output_prob.size()
+        var_expanded = output_var.expand(shape)
+        mse_loss = self.loss(output_cost.expand(shape), targets.expand(shape))
+        cur_loss = (2*np.pi*var_expanded).log() + mse_loss/var_expanded
+        # cur_loss = self.loss(output_prob.expand(shape), targets.expand(shape))
+        weighted_loss = cur_loss * output_prob
+        # only compute loss for places where label exists.
+        masked_loss = weighted_loss.sum(dim=1, keepdim=True).masked_select(torch.ne(targets, -1.0))
+        return masked_loss.mean()
+
 class L1LossMasked(torch.nn.Module):
 
     def __init__(self):
