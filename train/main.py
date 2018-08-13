@@ -26,7 +26,7 @@ from numpy.lib.stride_tricks import as_strided
 from tensorboardX import SummaryWriter
 
 from dataset import self_supervised_power
-from transform import Relabel, ToLabel, Colorize, ColorizeMinMax, ColorizeWithProb, ColorizeClasses, ColorizeClassesProb, FloatToLongLabel, ToFloatLabel, getMaxProbValue
+from transform import *
 from visualize import Dashboard
 
 from evaluation_functions import *
@@ -173,12 +173,15 @@ def train(args, model_student, model_teacher, enc=False):
     # Set Loss functions
     if args.regression:
         if args.force_n_classes > 0:
-            if args.gaussian_classes:
+            if args.likelihood_loss:
                 criterion = LogLikelihoodLossClassProbMasked()
             else:
                 criterion = L1LossClassProbMasked() # L1 loss weighted with class prob with averaging over mini-batch
         else:
-            criterion = L1LossMasked()     
+            if args.likelihood_loss:
+                criterion = LogLikelihoodLossMasked()
+            else:
+                criterion = L1LossMasked()     
     elif args.classification:
         criterion = CrossEntropyLoss2d()
         criterion_acc = ClassificationAccuracy()
@@ -309,7 +312,7 @@ def train(args, model_student, model_teacher, enc=False):
 
             if (args.force_n_classes) > 0:  # Captures both classification and regression with forced classes. 
                 # Forced into discrete classes. 
-                if args.gaussian_classes:
+                if args.likelihood_loss:
                     output_student_prob, output_student_power, output_student_power_var = model_student(inputs1)
                     if args.mean_teacher:
                         output_teacher_prob, output_teacher_power, output_teacher_power_var = model_teacher(inputs2)
@@ -325,7 +328,7 @@ def train(args, model_student, model_teacher, enc=False):
                     if args.mean_teacher:
                         loss_teacher_pred = criterion(output_teacher_prob, targets)
                 else:   # regression
-                    if args.gaussian_classes:
+                    if args.likelihood_loss:
                         loss_student_pred = criterion(output_student_prob, output_student_power, output_student_power_var, targets)
                         if args.mean_teacher:
                             loss_teacher_pred = criterion(output_teacher_prob, output_teacher_power, output_teacher_power_var, targets)
@@ -346,13 +349,27 @@ def train(args, model_student, model_teacher, enc=False):
                 output_student = model_student(inputs1)
                 if args.mean_teacher:
                     output_teacher = model_teacher(inputs2)
+                    # Compute consistency loss before we split output in likelihood loss case.
+                    loss_consistency = criterion_consistency(output_student, output_teacher, cur_consistency_weight)
+                if args.likelihood_loss:
+                    # Split output into mean and variance.
+                    output_var_student = output_student[:,1,:,:]
+                    output_student = output_student[:,0,:,:]
+                    if args.mean_teacher:
+                        output_var_teacher = output_teacher[:,1,:,:]
+                        output_teacher = output_teacher[:,0,:,:]
 
                 optimizer.zero_grad()
 
-                loss_student_pred = criterion(output_student, targets)
-                if args.mean_teacher:
-                    loss_teacher_pred = criterion(output_teacher, targets)
-                    loss_consistency = criterion_consistency(output_student, output_teacher, cur_consistency_weight)
+                if args.likelihood_loss:
+                    loss_student_pred = criterion(output_student, output_var_student, targets)
+                    if args.mean_teacher:
+                        loss_teacher_pred = criterion(output_teacher, output_var_teacher, targets)
+                else:
+                    loss_student_pred = criterion(output_student, targets)
+                    if args.mean_teacher:
+                        loss_teacher_pred = criterion(output_teacher, targets)
+                        
 
 
             # Do backward pass.
@@ -388,6 +405,7 @@ def train(args, model_student, model_teacher, enc=False):
                 step_vis_no = total_steps_train + len(epoch_loss_student)
 
                 # Figure out and compute tensor to visualize. 
+                start_time_plot = time.time()
                 if args.force_n_classes > 0:
                     
                     max_prob, vis_output = getMaxProbValue(output_student_prob[0].cpu().data, output_student_power[0].cpu().data, apply_softmax)
@@ -406,8 +424,11 @@ def train(args, model_student, model_teacher, enc=False):
                     vis_output = output_student[0].cpu().data
                     if args.mean_teacher:
                         vis_output_teacher = output_teacher[0].cpu().data
+                    if args.likelihood_loss:
+                        writer.add_image("train/std_dev_student", output_var_student[0].cpu().data, step_vis_no)
+                        if args.mean_teacher:
+                            writer.add_image("train/std_dev_teacher", output_var_teacher[0].cpu().data, step_vis_no)
 
-                start_time_plot = time.time()
                 image1 = inputs1[0].cpu().data
                 writer.add_image("train/1_input_student", image1, step_vis_no)
                 if args.mean_teacher:
@@ -507,7 +528,7 @@ def train(args, model_student, model_teacher, enc=False):
             for ind, val in enumerate(output_student_power.squeeze()):
                 power_dict[str(ind)] = val
             writer.add_scalars("params/class_cost_student", power_dict, total_steps_train)
-            if args.gaussian_classes:
+            if args.likelihood_loss:
                 var_dict = {}
                 for ind, val in enumerate(output_student_power_var.squeeze()):
                     var_dict[str(ind)] = val.sqrt()
@@ -517,7 +538,7 @@ def train(args, model_student, model_teacher, enc=False):
                 for ind, val in enumerate(output_teacher_power.squeeze()):
                     power_dict[str(ind)] = val
                 writer.add_scalars("params/class_cost_teacher", power_dict, total_steps_train)
-                if args.gaussian_classes:
+                if args.likelihood_loss:
                     var_dict = {}
                     for ind, val in enumerate(output_teacher_power_var.squeeze()):
                         var_dict[str(ind)] = val.sqrt()
@@ -583,13 +604,13 @@ def train(args, model_student, model_teacher, enc=False):
                 targets = Variable(labels)
 
                 if args.force_n_classes:
-                    if args.gaussian_classes:
+                    if args.likelihood_loss:
                         output_student_prob, output_student_power, output_student_power_var = model_student(inputs1) 
                     else:
                         output_student_prob, output_student_power = model_student(inputs1) 
                     max_prob_student, output_student = getMaxProbValue(output_student_prob, output_student_power, apply_softmax)
                     if args.mean_teacher:
-                        if args.gaussian_classes:
+                        if args.likelihood_loss:
                             output_teacher_prob, output_teacher_power, output_teacher_power_var = model_teacher(inputs2) 
                         else:
                             output_teacher_prob, output_teacher_power = model_teacher(inputs2) 
@@ -609,7 +630,7 @@ def train(args, model_student, model_teacher, enc=False):
                         if args.mean_teacher:
                             loss_teacher = criterion_val(output_teacher_prob, targets)
                     else:   # regression
-                        if args.gaussian_classes:
+                        if args.likelihood_loss:
                             loss_student = criterion_val(output_student_prob, output_student_power, output_student_power_var, targets)
                             if args.mean_teacher:
                                 loss_teacher = criterion_val(output_teacher_prob, output_teacher_power, output_teacher_power_var, targets)
@@ -618,9 +639,19 @@ def train(args, model_student, model_teacher, enc=False):
                             if args.mean_teacher:
                                 loss_teacher = criterion_val(output_teacher_prob, output_teacher_power, targets)
                 else :
-                    loss_student = criterion_val(output_student, targets)
-                    if args.mean_teacher:
-                        loss_teacher = criterion_val(output_teacher, targets)
+                    if args.likelihood_loss:
+                        output_var_student = output_student[:,1,:,:]
+                        output_student = output_student[:,0,:,:]
+                        loss_student = criterion_val(output_student, output_var_student, targets)
+                        if args.mean_teacher:
+                            output_var_teacher = output_teacher[:,1,:,:]
+                            output_teacher = output_teacher[:,0,:,:]
+                            loss_teacher = criterion_val(output_teacher, output_var_teacher, targets)
+
+                    else:
+                        loss_student = criterion_val(output_student, targets)
+                        if args.mean_teacher:
+                            loss_teacher = criterion_val(output_teacher, targets)
                 epoch_loss_student_val.append(loss_student.data.item())
                 if args.mean_teacher:
                     epoch_loss_teacher_val.append(loss_teacher.data.item())
@@ -650,6 +681,10 @@ def train(args, model_student, model_teacher, enc=False):
                         writer.add_image("val/output_student", color_transform_output(output_student[0].cpu().data), step_vis_no)
                         if args.mean_teacher:
                             writer.add_image("val/output_teacher", color_transform_output(output_teacher[0].cpu().data), step_vis_no)
+                        if args.likelihood_loss:
+                            writer.add_image("val/std_dev_student", output_var_student[0].cpu().data, step_vis_no)
+                            if args.mean_teacher:
+                                writer.add_image("val/std_dev_teacher", output_var_teacher[0].cpu().data, step_vis_no)
                     if args.force_n_classes > 0:
                         writer.add_image("val/classes_student", color_transform_classes_prob(output_student_prob[0].cpu().data), step_vis_no)
                         writer.add_image("val/max_class_probability_student", max_prob_student[0], step_vis_no)
@@ -669,7 +704,8 @@ def train(args, model_student, model_teacher, enc=False):
 
                     hist_ind = int(step / steps_hist)
                     _, hist_array = output_student_prob[0].cpu().data.max(dim=0, keepdim=True)
-                    writer.add_histogram("val/hist_"+str(hist_ind), hist_array.numpy().flatten(), total_steps_train, hist_bins)  # Use train steps so we can compare with class power plot
+                    # Use train steps so we can compare with class power plot
+                    writer.add_histogram("val/hist_"+str(hist_ind), hist_array.numpy().flatten(), total_steps_train, hist_bins)  
 
                     writer.add_image("val_"+str(hist_ind)+"/classes_student", color_transform_classes_prob(output_student_prob[0].cpu().data), total_steps_train)
                     writer.add_image("val_"+str(hist_ind)+"/output_student", color_transform_output(output_student[0].cpu().data), total_steps_train)
@@ -692,7 +728,8 @@ def train(args, model_student, model_teacher, enc=False):
             if args.classification:
                 acc_dict = {'student': sum(epoch_acc_student_val) / len(epoch_acc_student_val), 'teacher':sum(epoch_acc_teacher_val) / len(epoch_acc_teacher_val)}
                 writer.add_scalars("val/epoch_pixel_acc", acc_dict, total_steps_val)
-                acc_dict = {'student': sum(epoch_mean_acc_student_val) / len(epoch_mean_acc_student_val), 'teacher':sum(epoch_mean_acc_teacher_val) / len(epoch_mean_acc_teacher_val)}
+                acc_dict = {'student': sum(epoch_mean_acc_student_val) / len(epoch_mean_acc_student_val), 
+                            'teacher':sum(epoch_mean_acc_teacher_val) / len(epoch_mean_acc_teacher_val)}
                 writer.add_scalars("val/epoch_mean_acc", acc_dict, total_steps_val)
                 student_mean = np.nanmean(epoch_class_acc_student_val, axis=0)
                 teacher_mean = np.nanmean(epoch_class_acc_teacher_val, axis=0)
@@ -817,8 +854,10 @@ def main(args):
         if (not args.cuda):
             pretrainedEnc = pretrainedEnc.cpu()     #because loaded encoder is probably saved in cuda
     
-    model_student = model_file.Net( encoder=pretrainedEnc, softmax_classes=args.force_n_classes, gaussian_classes=args.gaussian_classes, spread_class_power=args.spread_init, late_dropout_prob=args.late_dropout_prob)  #Add decoder to encoder
-    model_teacher = model_file.Net( encoder=pretrainedEnc, softmax_classes=args.force_n_classes, gaussian_classes=args.gaussian_classes, spread_class_power=args.spread_init, late_dropout_prob=args.late_dropout_prob)  #Add decoder to encoder
+    model_student = model_file.Net( encoder=pretrainedEnc, softmax_classes=args.force_n_classes, likelihood_loss=args.likelihood_loss, 
+                                    spread_class_power=args.spread_init, late_dropout_prob=args.late_dropout_prob)  #Add decoder to encoder
+    model_teacher = model_file.Net( encoder=pretrainedEnc, softmax_classes=args.force_n_classes, likelihood_loss=args.likelihood_loss, 
+                                    spread_class_power=args.spread_init, late_dropout_prob=args.late_dropout_prob)  #Add decoder to encoder
 
     if args.cuda:
         def make_cuda(model):
@@ -853,7 +892,7 @@ if __name__ == '__main__':
     parser.add_argument('--pretrained', help="File path to pretrained network") #, default="../trained_models/erfnet_encoder_pretrained.pth.tar")
     parser.add_argument('--visualize', action='store_true', help="Visualize network output")
     parser.add_argument('--force-n-classes', type=int, default=0, help="Force network to discretize output into N classes")   # Force network to discretize output into classes with discrete output power
-    parser.add_argument('--gaussian-classes', action='store_true', default=False, help="Estimate class value variance")   # Learn a Gaussian for every class instead of just mean.
+    parser.add_argument('--likelihood-loss', action='store_true', default=False, help="Estimate class value variance")   # Learn a Gaussian for every class instead of just mean.
     parser.add_argument('--spread-init', action='store_true', default=False, help="Initialize class values with a spread")    # Spread initial class power over interval [0.7,...,2.0]
     parser.add_argument('--fix-class-power', action='store_true', default=False, help="Fix class values and only learn class membership")    # Fix class power so that it is not optimized
     parser.add_argument('--late-dropout-prob', type=float, default=0.1, help="Dropout probability in last layer if class discretization is used")    # Specify dropout prob in last layer after softmax

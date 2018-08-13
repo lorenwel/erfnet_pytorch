@@ -46,7 +46,7 @@ class Encoder(nn.Module):
         return output
 
 class Decoder (nn.Module):
-    def __init__(self, softmax_classes, late_dropout_prob, use_dropout=False):
+    def __init__(self, softmax_classes, late_dropout_prob, likelihood_loss, use_dropout=False):
         super().__init__()
 
         self.scalar_decoder_1 = DecoderBlock(128, 64, use_dropout=use_dropout)
@@ -55,7 +55,11 @@ class Decoder (nn.Module):
         if softmax_classes:
             self.scalar_output_conv = SoftMaxConv(16, softmax_classes, late_dropout_prob, use_dropout=use_dropout)
         else:
-            self.scalar_output_conv = nn.ConvTranspose2d( 16, 1, 2, stride=2, padding=0, output_padding=0, bias=True)
+            if likelihood_loss:
+                # We want two output channels for mean and var, respectively. 
+                self.scalar_output_conv = nn.ConvTranspose2d( 16, 2, 2, stride=2, padding=0, output_padding=0, bias=True)
+            else:
+                self.scalar_output_conv = nn.ConvTranspose2d( 16, 1, 2, stride=2, padding=0, output_padding=0, bias=True)
 
 
     def forward(self, input):
@@ -71,13 +75,13 @@ class Decoder (nn.Module):
 class Net(nn.Module):
     def __init__(self, encoder=None, 
                        softmax_classes=0, 
-                       gaussian_classes=False,
+                       likelihood_loss=False,
                        spread_class_power=False, 
                        late_dropout_prob=0.1):  #use encoder to pass pretrained encoder
         super().__init__()
 
         self.softmax_classes = softmax_classes
-        self.gaussian_classes = gaussian_classes
+        self.likelihood_loss = likelihood_loss
 
         # Initialize class power consumption only when we have discretized into classes. 
         use_dropout=False
@@ -101,13 +105,13 @@ class Net(nn.Module):
         else:
             print("ERFnet set encoder from external")
             self.encoder = encoder
-        self.decoder = Decoder(softmax_classes, late_dropout_prob, use_dropout=use_dropout)
+        self.decoder = Decoder(softmax_classes, late_dropout_prob, likelihood_loss, use_dropout=use_dropout)
 
     def forward(self, input):
         output_scalar = self.encoder(input)
         output_scalar = self.decoder.forward(output_scalar)
         if self.softmax_classes > 0:
-            if self.gaussian_classes:
+            if self.likelihood_loss:
                 return output_scalar, self.class_power, self.class_power_var
             else:
                 return output_scalar, self.class_power
