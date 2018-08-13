@@ -94,7 +94,7 @@ class Net(nn.Module):
             if spread_class_power:
                 print("Spreading initial class power estimates to:")
                 init_vals = np.ndarray((1,softmax_classes,1,1), dtype="float32")
-                init_vals[0,:,0,0] = np.linspace(0.7, 2.0, softmax_classes)
+                init_vals[0,:,0,0] = np.linspace(0.0, 2.0, softmax_classes)
                 print(init_vals[0,:,0,0])
                 init_tensor = torch.from_numpy(init_vals)
             else:

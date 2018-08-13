@@ -47,8 +47,8 @@ WEIGHT_DECAY=1e-6
 
 DISCOUNT_RATE_START=0.1
 DISCOUNT_RATE=0.01
-MAX_CONSISTENCY_EPOCH=30
-DISCOUNT_RATE_START_EPOCH=50
+MAX_CONSISTENCY_EPOCH=10
+DISCOUNT_RATE_START_EPOCH=2
 
 color_transform_target = Colorize(0.0, 2.0, remove_negative=True, extend=True, white_val=1.0)  # min_val, max_val, remove negative
 color_transform_output = Colorize(0.0, 2.0, remove_negative=False, extend=True, white_val=1.0)  # Automatic color based on tensor min/max val
@@ -185,7 +185,7 @@ def train(args, model_student, model_teacher, enc=False):
         criterion_mean_acc = MeanAccuracy(args.force_n_classes)
 
     criterion_val = criterion
-    criterion_consistency = MSELossWeighted()
+    criterion_consistency = MSELossWeighted(args.consistency_weight)
 
     savedir = f'../save/{args.savedir}'
 
@@ -672,9 +672,11 @@ def train(args, model_student, model_teacher, enc=False):
                     writer.add_histogram("val/hist_"+str(hist_ind), hist_array.numpy().flatten(), total_steps_train, hist_bins)  # Use train steps so we can compare with class power plot
 
                     writer.add_image("val_"+str(hist_ind)+"/classes_student", color_transform_classes_prob(output_student_prob[0].cpu().data), total_steps_train)
+                    writer.add_image("val_"+str(hist_ind)+"/output_student", color_transform_output(output_student[0].cpu().data), total_steps_train)
                     writer.add_image("val_"+str(hist_ind)+"/max_class_probability_student", max_prob_student[0], total_steps_train)
                     if args.mean_teacher:
                         writer.add_image("val_"+str(hist_ind)+"/classes_teacher", color_transform_classes_prob(output_teacher_prob[0].cpu().data), total_steps_train)
+                        writer.add_image("val_"+str(hist_ind)+"/output_teacher", color_transform_output(output_teacher[0].cpu().data), total_steps_train)
                         writer.add_image("val_"+str(hist_ind)+"/max_class_probability_teacher", max_prob_teacher[0], total_steps_train)
 
                     if epoch == start_epoch:
@@ -818,18 +820,18 @@ def main(args):
     model_student = model_file.Net( encoder=pretrainedEnc, softmax_classes=args.force_n_classes, gaussian_classes=args.gaussian_classes, spread_class_power=args.spread_init, late_dropout_prob=args.late_dropout_prob)  #Add decoder to encoder
     model_teacher = model_file.Net( encoder=pretrainedEnc, softmax_classes=args.force_n_classes, gaussian_classes=args.gaussian_classes, spread_class_power=args.spread_init, late_dropout_prob=args.late_dropout_prob)  #Add decoder to encoder
 
-    if args.pretrained:
-        pretrained = torch.load(args.pretrained)['state_dict']
-        model_student.load_state_dict(pretrained)
-        model_teacher.load_state_dict(pretrained)
-        print("Loaded pretrained model")
-
     if args.cuda:
         def make_cuda(model):
             return torch.nn.DataParallel(model).cuda()
 
         model_student = make_cuda(model_student)
         model_teacher = make_cuda(model_teacher)
+
+    if args.pretrained:
+        pretrained = torch.load(args.pretrained)['state_dict']
+        model_student.load_state_dict(pretrained, strict=False)
+        model_teacher.load_state_dict(pretrained, strict=False)
+        print("Loaded pretrained model")
 
     #When loading encoder reinitialize weights for decoder because they are set to 0 when training dec
     model_student, model_teacher = train(args, model_student, model_teacher, False)   #Train decoder
@@ -860,6 +862,7 @@ if __name__ == '__main__':
     parser.add_argument('--regression', action='store_true', default=False, help="Training for a regression problem (can also have discretized classes)") # Plot power consumption or whatever scalar value
     parser.add_argument('--classification', action='store_true', default=False, help="Training for a classification problem.") # Plot power consumption or whatever scalar value
     parser.add_argument('--label-name', type=str, default="class", help="Suffix for label file names")
+    parser.add_argument('--consistency-weight', type=float, default=1.0, help="Weight of consistency loss.")
 
     parser.add_argument('--resume', action='store_true', help="Resume from previous checkpoint")    #Use this flag to load last checkpoint for training  
 

@@ -101,15 +101,14 @@ class L1Loss(torch.nn.Module):
 
 class MSELossWeighted(torch.nn.Module):
 
-    def __init__(self):
+    def __init__(self, scale_factor):
         super().__init__()
 
         self.loss = torch.nn.MSELoss(False, False)
-        self.weight = torch.autograd.Variable(torch.Tensor([0.0])).cuda()
+        self.scale_factor = scale_factor
 
     def forward(self, outputs, targets, weight):
-        self.weight.fill_(weight)
-        return (self.loss(outputs, targets) * self.weight).mean()
+        return (self.loss(outputs, targets) * self.scale_factor * weight).mean()
 
 class ClassificationAccuracy():
 
