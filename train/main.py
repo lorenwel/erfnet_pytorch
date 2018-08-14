@@ -45,10 +45,10 @@ BETAS=(0.9, 0.999)
 OPT_EPS=1e-04
 WEIGHT_DECAY=1e-6
 
-DISCOUNT_RATE_START=0.1
-DISCOUNT_RATE=0.01
+DISCOUNT_RATE_START=0.01
+DISCOUNT_RATE=0.001
 MAX_CONSISTENCY_EPOCH=10
-DISCOUNT_RATE_START_EPOCH=2
+DISCOUNT_RATE_START_EPOCH=5
 
 color_transform_target = Colorize(0.0, 2.0, remove_negative=True, extend=True, white_val=1.0)  # min_val, max_val, remove negative
 color_transform_output = Colorize(0.0, 2.0, remove_negative=False, extend=True, white_val=1.0)  # Automatic color based on tensor min/max val
@@ -179,7 +179,7 @@ def train(args, model_student, model_teacher, enc=False):
                 criterion = L1LossClassProbMasked() # L1 loss weighted with class prob with averaging over mini-batch
         else:
             if args.likelihood_loss:
-                criterion = LogLikelihoodLossMasked()
+                criterion = LogLikelihoodLossMasked(opt_eps=OPT_EPS)
             else:
                 criterion = L1LossMasked()     
     elif args.classification:
@@ -353,10 +353,10 @@ def train(args, model_student, model_teacher, enc=False):
                     loss_consistency = criterion_consistency(output_student, output_teacher, cur_consistency_weight)
                 if args.likelihood_loss:
                     # Split output into mean and variance.
-                    output_var_student = output_student[:,1,:,:]
+                    output_var_student = output_student[:,1,:,:].pow(2)
                     output_student = output_student[:,0,:,:]
                     if args.mean_teacher:
-                        output_var_teacher = output_teacher[:,1,:,:]
+                        output_var_teacher = output_teacher[:,1,:,:].pow(2)
                         output_teacher = output_teacher[:,0,:,:]
 
                 optimizer.zero_grad()
@@ -425,9 +425,9 @@ def train(args, model_student, model_teacher, enc=False):
                     if args.mean_teacher:
                         vis_output_teacher = output_teacher[0].cpu().data
                     if args.likelihood_loss:
-                        writer.add_image("train/std_dev_student", output_var_student[0].cpu().data, step_vis_no)
+                        writer.add_image("train/std_dev_student", output_var_student[0].sqrt().cpu().data, step_vis_no)
                         if args.mean_teacher:
-                            writer.add_image("train/std_dev_teacher", output_var_teacher[0].cpu().data, step_vis_no)
+                            writer.add_image("train/std_dev_teacher", output_var_teacher[0].sqrt().cpu().data, step_vis_no)
 
                 image1 = inputs1[0].cpu().data
                 writer.add_image("train/1_input_student", image1, step_vis_no)
@@ -532,7 +532,7 @@ def train(args, model_student, model_teacher, enc=False):
                 var_dict = {}
                 for ind, val in enumerate(output_student_power_var.squeeze()):
                     var_dict[str(ind)] = val.sqrt()
-                writer.add_scalars("params/class_cost_var_student", var_dict, total_steps_train)
+                writer.add_scalars("params/class_cost_std_student", var_dict, total_steps_train)
             if args.mean_teacher:
                 power_dict = {}
                 for ind, val in enumerate(output_teacher_power.squeeze()):
@@ -542,7 +542,7 @@ def train(args, model_student, model_teacher, enc=False):
                     var_dict = {}
                     for ind, val in enumerate(output_teacher_power_var.squeeze()):
                         var_dict[str(ind)] = val.sqrt()
-                    writer.add_scalars("params/class_cost_var_teacher", var_dict, total_steps_train)
+                    writer.add_scalars("params/class_cost_std_teacher", var_dict, total_steps_train)
 
 
         # Clear loss for next loss print iteration.
@@ -640,11 +640,11 @@ def train(args, model_student, model_teacher, enc=False):
                                 loss_teacher = criterion_val(output_teacher_prob, output_teacher_power, targets)
                 else :
                     if args.likelihood_loss:
-                        output_var_student = output_student[:,1,:,:]
+                        output_var_student = output_student[:,1,:,:].pow(2)
                         output_student = output_student[:,0,:,:]
                         loss_student = criterion_val(output_student, output_var_student, targets)
                         if args.mean_teacher:
-                            output_var_teacher = output_teacher[:,1,:,:]
+                            output_var_teacher = output_teacher[:,1,:,:].pow(2)
                             output_teacher = output_teacher[:,0,:,:]
                             loss_teacher = criterion_val(output_teacher, output_var_teacher, targets)
 
@@ -681,10 +681,10 @@ def train(args, model_student, model_teacher, enc=False):
                         writer.add_image("val/output_student", color_transform_output(output_student[0].cpu().data), step_vis_no)
                         if args.mean_teacher:
                             writer.add_image("val/output_teacher", color_transform_output(output_teacher[0].cpu().data), step_vis_no)
-                        if args.likelihood_loss:
-                            writer.add_image("val/std_dev_student", output_var_student[0].cpu().data, step_vis_no)
+                        if args.likelihood_loss and args.force_n_classes == 0:
+                            writer.add_image("val/std_dev_student", output_var_student[0].sqrt().cpu().data, step_vis_no)
                             if args.mean_teacher:
-                                writer.add_image("val/std_dev_teacher", output_var_teacher[0].cpu().data, step_vis_no)
+                                writer.add_image("val/std_dev_teacher", output_var_teacher[0].sqrt().cpu().data, step_vis_no)
                     if args.force_n_classes > 0:
                         writer.add_image("val/classes_student", color_transform_classes_prob(output_student_prob[0].cpu().data), step_vis_no)
                         writer.add_image("val/max_class_probability_student", max_prob_student[0], step_vis_no)

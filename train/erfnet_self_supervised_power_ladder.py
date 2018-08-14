@@ -64,7 +64,7 @@ class Decoder (nn.Module):
             self.scalar_output_conv = SoftMaxConv(16, softmax_classes, late_dropout_prob, use_dropout=use_dropout)
         else:
             if likelihood_loss:
-                # We want two output channels for mean and var, respectively. 
+                # We want two output channels for mean and std, respectively. 
                 self.scalar_output_conv = nn.ConvTranspose2d( 16, 2, 2, stride=2, padding=0, output_padding=0, bias=True)
             else:
                 self.scalar_output_conv = nn.ConvTranspose2d( 16, 1, 2, stride=2, padding=0, output_padding=0, bias=True)

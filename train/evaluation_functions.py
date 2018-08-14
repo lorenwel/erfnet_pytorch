@@ -49,15 +49,17 @@ class L1LossClassProbMasked(torch.nn.Module):
 class LogLikelihoodLossClassProbMasked(torch.nn.Module):
     # This loss ignores the 1/2 factor of the "proper" likelihood function
 
-    def __init__(self):
+    def __init__(self, opt_eps=0.0):
         super().__init__()
 
         self.loss = torch.nn.MSELoss(False, False)
+        self.opt_eps = opt_eps
 
     def forward(self, output_prob, output_cost, output_var, targets):
         targets = targets.unsqueeze(1)
         shape = output_prob.size()
-        var_expanded = output_var.expand(shape)
+        # Add opt_eps to avoid instabilities with very small variance
+        var_expanded = output_var.expand(shape)+self.opt_eps
         mse_loss = self.loss(output_cost.expand(shape), targets.expand(shape))
         cur_loss = (2*np.pi*var_expanded).log() + mse_loss/var_expanded
         # cur_loss = self.loss(output_prob.expand(shape), targets.expand(shape))
@@ -69,13 +71,16 @@ class LogLikelihoodLossClassProbMasked(torch.nn.Module):
 class LogLikelihoodLossMasked(torch.nn.Module):
     # This loss ignores the 1/2 factor of the "proper" likelihood function
 
-    def __init__(self):
+    def __init__(self, opt_eps=0.0):
         super().__init__()
 
         self.loss = torch.nn.MSELoss(False, False)
+        self.opt_eps = opt_eps
 
     def forward(self, output_cost, output_var, targets):
         mse_loss = self.loss(output_cost, targets)
+        output_var = output_var + self.opt_eps
+        # Add opt_eps to avoid instabilities with very small variance
         cur_loss = (2*np.pi*output_var).log() + mse_loss/output_var
         # only compute loss for places where label exists.
         masked_loss = cur_loss.masked_select(torch.ne(targets, -1.0))
