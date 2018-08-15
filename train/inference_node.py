@@ -42,23 +42,27 @@ class NetworkInferencer:
     rospy.spin()
 
   def do_inference(self, input):
-    if use_cuda:
-      input = input.cuda()
 
     with torch.no_grad():
-      output = self.net(input)
-      output = output[0,0,:,:]
+      if use_cuda:
+        input = input.cuda()
 
-    if use_cuda:
-      output = output.cpu()
+      # Do reshape, transpose and such.
+      net_in = input.view(self.shape[0], self.shape[1], self.shape[2])
+      net_in.transpose_(0,2)
+      net_in.div_(255.0)
+
+      output = self.net(net_in.unsqueeze(0))
+      output = output[0,0,:,:].transpose(0,1)
+
+      if use_cuda:
+        output = output.cpu()
 
     return output
 
   def get_numpy_img(self, ros_img):
-    shape = (ros_img.height, ros_img.width, 3)
-    np_img = np.fromstring(ros_img.data, dtype=(np.uint8, 3)).reshape(shape)
-    np_img = np.transpose(np_img, (2, 1, 0))
-    np_img = np_img.astype(np.float32)/255.0
+    self.shape = (ros_img.height, ros_img.width, 3)
+    np_img = np.fromstring(ros_img.data, dtype=(np.uint8, 3))
 
     return np_img
 
@@ -70,11 +74,10 @@ class NetworkInferencer:
     tensor_img = torch.Tensor(np_img)
 
     # Do the inference
-    tensor_out = self.do_inference(tensor_img.unsqueeze(0))
+    tensor_out = self.do_inference(tensor_img)
 
     # Do output conversion
     np_out = tensor_out.numpy()
-    np_out = np_out.transpose()
     # Convert to ROS image
     ros_out = Image(encoding="32FC1")
     ros_out.height = np_out.shape[0]
@@ -124,6 +127,8 @@ if __name__ == '__main__':
   use_cuda = torch.cuda.is_available()
   if args.force_cuda:
     assert use_cuda, 'CUDA not available on system'
+  if use_cuda:
+    print('Using CUDA')
 
   # Get network.
   net = load_network(args, use_cuda)
