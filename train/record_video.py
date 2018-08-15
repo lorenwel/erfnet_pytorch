@@ -20,14 +20,10 @@ from torchvision.transforms import Compose, CenterCrop, Normalize, Resize, Pad, 
 from torchvision.transforms import ToTensor, ToPILImage
 from torchvision.transforms import functional
 
-from scipy import ndimage
 from numpy.lib.stride_tricks import as_strided
-
-from tensorboardX import SummaryWriter
 
 from dataset import self_supervised_power
 from transform import Relabel, ToLabel, Colorize, ColorizeMinMax, ColorizeWithProb, ColorizeClasses, ColorizeClassesProb, FloatToLongLabel, ToFloatLabel, getMaxProbValue
-from visualize import Dashboard
 
 from evaluation_functions import *
 
@@ -78,8 +74,8 @@ def record_video(args, model_student, model_teacher, enc=False):
         tensor_type = 'long'
     else:   # regression
         tensor_type = 'float'
-    dataset_train = self_supervised_power(args.datadir, None, 'train', file_format="csv", label_name=args.label_name, tensor_type=tensor_type)
-    dataset_val = self_supervised_power(args.datadir, None, 'val', file_format="csv", label_name=args.label_name, tensor_type=tensor_type)
+    dataset_train = self_supervised_power(args.datadir, None, 'train', file_format="csv", label_name=args.label_name, tensor_type=tensor_type, subsample=1000)
+    dataset_val = self_supervised_power(args.datadir, None, 'val', file_format="csv", label_name=args.label_name, tensor_type=tensor_type, subsample=1000)
 
     if args.force_n_classes > 0:
         if args.classification:
@@ -121,11 +117,12 @@ def record_video(args, model_student, model_teacher, enc=False):
         targets = Variable(labels)
 
         start_time = time.time()
-        if (args.force_n_classes) > 0:  # Captures both classification and regression with forced classes. 
-            # Forced into discrete classes. 
-            output_student_prob, output_student_power = model_student(inputs1)
-        else:
-            output_student = model_student(inputs1)
+        with torch.no_grad():
+          if (args.force_n_classes) > 0:  # Captures both classification and regression with forced classes. 
+              # Forced into discrete classes. 
+              output_student_prob, output_student_power = model_student(inputs1)
+          else:
+              output_student = model_student(inputs1)
         end_time = time.time()
         tot_inf_dur += end_time - start_time
 
@@ -135,6 +132,10 @@ def record_video(args, model_student, model_teacher, enc=False):
             class_img = image_transform(color_transform_classes_prob(output_student_prob[0].cpu().data))
             prob_img = image_transform(max_prob[0].unsqueeze(0))
         else:
+            if args.likelihood_loss:
+                output_var_student = output_student[:,1,:,:].pow(2)
+                output_student = output_student[:,0,:,:]
+                std_img = image_transform(output_var_student[0].sqrt().unsqueeze(0).cpu().data)
             vis_output = output_student[0].cpu().data
 
         regression_output = image_transform(color_transform_output(vis_output))
@@ -143,6 +144,7 @@ def record_video(args, model_student, model_teacher, enc=False):
             target_output = image_transform(color_transform_classes(targets[0].cpu().data))
         else:   # regression
             target_output = image_transform(color_transform_target(targets[0].cpu().data))
+                
 
         # Save images.
         prepend_str = step_tracker_train.getStepString(step)
@@ -150,9 +152,14 @@ def record_video(args, model_student, model_teacher, enc=False):
         target_output.save(os.path.join(output_dir_train, 'target_' + prepend_str + '.jpg'))
         if args.regression:
             regression_output.save(os.path.join(output_dir_train, 'regression_' + prepend_str + '.jpg'))
+            if args.likelihood_loss:
+                std_img.save(os.path.join(output_dir_train, 'std_' + prepend_str + '.jpg'))
         if args.force_n_classes:
             class_img.save(os.path.join(output_dir_train, 'class_' + prepend_str + '.jpg'))
             prob_img.save(os.path.join(output_dir_train, 'prob_' + prepend_str + '.jpg'))
+
+    avg_time = tot_inf_dur / (len(dataset_train))
+    print ("Total inference time during training set", tot_inf_dur, "s. Average per image", avg_time, "s.")
             
         
     #Validate on 500 val images after each epoch of training
@@ -168,11 +175,12 @@ def record_video(args, model_student, model_teacher, enc=False):
         targets = Variable(labels)
 
         start_time = time.time()
-        if (args.force_n_classes) > 0:  # Captures both classification and regression with forced classes. 
-            # Forced into discrete classes. 
-            output_student_prob, output_student_power = model_student(inputs1)
-        else:
-            output_student = model_student(inputs1)
+        with torch.no_grad():
+          if (args.force_n_classes) > 0:  # Captures both classification and regression with forced classes. 
+              # Forced into discrete classes. 
+              output_student_prob, output_student_power = model_student(inputs1)
+          else:
+              output_student = model_student(inputs1)
         end_time = time.time()
         tot_inf_dur += end_time - start_time
 
@@ -182,6 +190,10 @@ def record_video(args, model_student, model_teacher, enc=False):
             class_img = image_transform(color_transform_classes_prob(output_student_prob[0].cpu().data))
             prob_img = image_transform(max_prob[0].unsqueeze(0))
         else:
+            if args.likelihood_loss:
+                output_var_student = output_student[:,1,:,:].pow(2)
+                output_student = output_student[:,0,:,:]
+                std_img = image_transform(output_var_student[0].sqrt().unsqueeze(0).cpu().data)
             vis_output = output_student[0].cpu().data
 
         regression_output = image_transform(color_transform_output(vis_output))
@@ -197,12 +209,13 @@ def record_video(args, model_student, model_teacher, enc=False):
         target_output.save(os.path.join(output_dir_val, 'target_' + prepend_str + '.jpg'))
         if args.regression:
             regression_output.save(os.path.join(output_dir_val, 'regression_' + prepend_str + '.jpg'))
+            if args.likelihood_loss:
+                std_img.save(os.path.join(output_dir_val, 'std_' + prepend_str + '.jpg'))
         if args.force_n_classes:
             class_img.save(os.path.join(output_dir_val, 'class_' + prepend_str + '.jpg'))
             prob_img.save(os.path.join(output_dir_val, 'prob_' + prepend_str + '.jpg'))
 
-        avg_time = tot_inf_dur / (len(dataset_train) + len(dataset_val))
-
+    avg_time = tot_inf_dur / (len(dataset_train) + len(dataset_val))
     print ("Total inference time", tot_inf_dur, "s. Average per image", avg_time, "s.")
                    
        
@@ -220,8 +233,8 @@ def main(args):
     assert os.path.exists(args.model + ".py"), "Error: model definition not found"
     model_file = importlib.import_module(args.model)
    
-    model_student = model_file.Net( softmax_classes=args.force_n_classes)  #Add decoder to encoder
-    model_teacher = model_file.Net( softmax_classes=args.force_n_classes)  #Add decoder to encoder
+    model_student = model_file.Net( softmax_classes=args.force_n_classes, likelihood_loss=args.likelihood_loss)  #Add decoder to encoder
+    model_teacher = model_file.Net( softmax_classes=args.force_n_classes, likelihood_loss=args.likelihood_loss)  #Add decoder to encoder
 
     if args.cuda:
         def make_cuda(model):
@@ -253,5 +266,6 @@ if __name__ == '__main__':
     parser.add_argument('--classification', action='store_true', default=False) # Plot power consumption or whatever scalar value
     parser.add_argument('--label-name', type=str, default="class")
     parser.add_argument('--force-n-classes', type=int, default=0)
+    parser.add_argument('--likelihood-loss',action='store_true',default=False)
 
     main(parser.parse_args())
