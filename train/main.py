@@ -40,7 +40,7 @@ NUM_CHANNELS = 3
 NUM_HISTOGRAMS = 5
 NUM_IMG_PER_EPOCH = 10
 # Optimizer params.
-LEARNING_RATE=1e-4
+LEARNING_RATE=5e-5
 BETAS=(0.9, 0.999)
 OPT_EPS=1e-04
 WEIGHT_DECAY=1e-6
@@ -713,7 +713,7 @@ def train(args, model_student, model_teacher, enc=False):
                         if args.mean_teacher:
                             writer.add_image("val_"+str(hist_ind)+"/classes_teacher", color_transform_classes_prob(output_teacher_prob[0].cpu().data), total_steps_train)
                             writer.add_image("val_"+str(hist_ind)+"/max_class_probability_teacher", max_prob_teacher[0], total_steps_train)
-                            
+
                     writer.add_image("val_"+str(hist_ind)+"/output_student", color_transform_output(output_student[0].cpu().data), total_steps_train)
                     if args.mean_teacher:
                         writer.add_image("val_"+str(hist_ind)+"/output_teacher", color_transform_output(output_teacher[0].cpu().data), total_steps_train)
@@ -726,7 +726,8 @@ def train(args, model_student, model_teacher, enc=False):
         print(f'VAL loss_teacher: {avg_loss_student_val:0.4} (epoch: {epoch}, step: {total_steps_val})', 
                 "// Avg time/img: %.4f s" % (sum(time_val) / len(time_val) / args.batch_size))
         if args.mean_teacher:
-            loss_dict = {'student': sum(epoch_loss_student_val) / len(epoch_loss_student_val), 'teacher': avg_loss_student_val}
+            avg_loss_teacher_val = sum(epoch_loss_teacher_val) / len(epoch_loss_teacher_val)
+            loss_dict = {'student': avg_loss_student_val, 'teacher': avg_loss_teacher_val}
             writer.add_scalars("val/epoch_loss", loss_dict, total_steps_val)
             if args.classification:
                 acc_dict = {'student': sum(epoch_acc_student_val) / len(epoch_acc_student_val), 'teacher':sum(epoch_acc_teacher_val) / len(epoch_acc_teacher_val)}
@@ -758,6 +759,8 @@ def train(args, model_student, model_teacher, enc=False):
             current_acc = sum(epoch_mean_acc_student_val) / len(epoch_mean_acc_student_val)
         else:   # regression
             current_acc = -avg_loss_student_val
+            if args.mean_teacher:
+                current_acc = -avg_loss_teacher_val
 
         epoch_loss_student_val = []
         if args.mean_teacher:
