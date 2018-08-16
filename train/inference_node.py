@@ -14,7 +14,8 @@ from sensor_msgs.msg import Image
 
 
 SUBSCRIBER_TOPIC='/realsense_zr300/rgb/image_raw/'
-PUBLISHER_TOPIC= 'output/scalar_image_raw'
+PROPERTY_TOPIC= 'output/scalar_image_raw'
+STD_TOPIC= 'output/std_image_raw'
 
 
 
@@ -22,12 +23,15 @@ class NetworkInferencer:
 
 
 
-  def __init__(self, net, use_cuda):
+  def __init__(self, net, use_cuda, args):
     # Save net
     self.net = net
     self.use_cuda = use_cuda
+    self.args = args
     # Create ROS interfaces
-    self.val_pub = rospy.Publisher(PUBLISHER_TOPIC, Image, queue_size=2)
+    self.property_pub = rospy.Publisher(PROPERTY_TOPIC, Image, queue_size=2)
+    if self.args.likelihood_loss:
+      self.std_pub = rospy.Publisher(STD_TOPIC, Image, queue_size=2)
     self.subscriber = rospy.Subscriber(SUBSCRIBER_TOPIC, 
                                        Image, 
                                        self.callback, 
@@ -44,17 +48,14 @@ class NetworkInferencer:
         input = input.cuda()
 
       # Do reshape, transpose and such.
-      net_in = input.view(self.shape[0], self.shape[1], self.shape[2])
-      net_in.transpose_(0,2)
-      net_in.div_(255.0)
+      net_in = input.view(self.shape[0], self.shape[1], self.shape[2])  # Reshape to image dims
+      net_in.transpose_(0,2)  # Move RGB to channel dimension
+      net_in.div_(255.0)  # Create from 255 white to 1.0 white
 
-      output = self.net(net_in.unsqueeze(0))
-      output = output[0,0,:,:].transpose(0,1)
+      output = self.net(net_in.unsqueeze(0))  # Unsqueeze to create batch dimension
+      output = output.transpose(2,3)  # Swap height and widt back
 
-      if use_cuda:
-        output = output.cpu()
-
-    return output
+    return output[0,:,:,:].cpu()
 
 
 
@@ -66,17 +67,24 @@ class NetworkInferencer:
 
 
 
-  def publish_output(self, np_out):
-    # Convert to ROS image
-    ros_out = Image(encoding="32FC1")
-    ros_out.header = ros_img.header
-    ros_out.height = np_out.shape[0]
-    ros_out.width = np_out.shape[1]
-    contig = np.ascontiguousarray(np_out)
-    ros_out.data = contig.tostring()
-    ros_out.step = contig.strides[0]
+  def publish_output(self, np_out, header):
+    property_out = Image(encoding="32FC1")
+    property_out.header = header
+    property_out.height = self.shape[0]
+    property_out.width = self.shape[1]
+    if self.args.likelihood_loss:
+      contig = np.ascontiguousarray(np_out[0])
+      contig_std = np.ascontiguousarray(np_out[1])
+    else:
+      contig = np.ascontiguousarray(np_out)
+    property_out.step = contig.strides[0]
+    if self.args.likelihood_loss:
+      std_out = property_out
+      std_out.data = contig_std.tostring()
+      self.std_pub.publish(std_out)
+    property_out.data = contig.tostring()
     # Publish
-    self.val_pub.publish(ros_out)
+    self.property_pub.publish(property_out)
 
 
 
@@ -89,8 +97,8 @@ class NetworkInferencer:
     tensor_out = self.do_inference(tensor_img)
     # Do output conversion
     np_out = tensor_out.numpy()
-    # Publish
-    publish_output(npt_out)
+    # Convert to ROS image
+    self.publish_output(np_out, ros_img.header)
 
 
 
@@ -137,5 +145,5 @@ if __name__ == '__main__':
   rospy.init_node('inferencer')
 
   # Start inferencer.
-  NetworkInferencer(net, use_cuda)
+  NetworkInferencer(net, use_cuda, args)
 
