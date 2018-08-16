@@ -40,7 +40,7 @@ NUM_CHANNELS = 3
 NUM_HISTOGRAMS = 5
 NUM_IMG_PER_EPOCH = 10
 # Optimizer params.
-LEARNING_RATE=5e-4
+LEARNING_RATE=5e-5
 BETAS=(0.9, 0.999)
 OPT_EPS=1e-04
 WEIGHT_DECAY=1e-6
@@ -413,7 +413,7 @@ def train(args, model_student, model_teacher, enc=False):
                     writer.add_image("train/3_max_class_probability_student", max_prob[0], step_vis_no)
                     if args.mean_teacher:
                         max_prob_teacher, vis_output_teacher = getMaxProbValue(output_teacher_prob[0].cpu().data, output_teacher_power[0].cpu().data, apply_softmax)
-                        writer.add_image("train/2_classes_teacher", color_transform_classes_prob(output_student_prob[0].cpu().data), step_vis_no)
+                        writer.add_image("train/2_classes_teacher", color_transform_classes_prob(output_teacher_prob[0].cpu().data), step_vis_no)
                         writer.add_image("train/3_max_class_probability_teacher", max_prob_teacher[0], step_vis_no)
                     if args.regression:
                         # Compute weighted power consumption
@@ -699,21 +699,24 @@ def train(args, model_student, model_teacher, enc=False):
                         writer.add_image("val/target", color_transform_target(targets[0].cpu().data), step_vis_no)
                     print ("Time to paint images: ", time.time() - start_time_plot)
                 # Plot histograms
-                if args.force_n_classes > 0 and args.visualize and steps_hist > 0 and step % steps_hist == 0:
+                if args.visualize and steps_hist > 0 and step % steps_hist == 0:
                     image1 = inputs1[0].cpu().data
 
                     hist_ind = int(step / steps_hist)
-                    _, hist_array = output_student_prob[0].cpu().data.max(dim=0, keepdim=True)
-                    # Use train steps so we can compare with class power plot
-                    writer.add_histogram("val/hist_"+str(hist_ind), hist_array.numpy().flatten(), total_steps_train, hist_bins)  
 
-                    writer.add_image("val_"+str(hist_ind)+"/classes_student", color_transform_classes_prob(output_student_prob[0].cpu().data), total_steps_train)
+                    if args.force_n_classes > 0:
+                        _, hist_array = output_student_prob[0].cpu().data.max(dim=0, keepdim=True)
+                        # Use train steps so we can compare with class power plot
+                        writer.add_histogram("val/hist_"+str(hist_ind), hist_array.numpy().flatten(), total_steps_train, hist_bins)  
+                        writer.add_image("val_"+str(hist_ind)+"/classes_student", color_transform_classes_prob(output_student_prob[0].cpu().data), total_steps_train)
+                        writer.add_image("val_"+str(hist_ind)+"/max_class_probability_student", max_prob_student[0], total_steps_train)
+                        if args.mean_teacher:
+                            writer.add_image("val_"+str(hist_ind)+"/classes_teacher", color_transform_classes_prob(output_teacher_prob[0].cpu().data), total_steps_train)
+                            writer.add_image("val_"+str(hist_ind)+"/max_class_probability_teacher", max_prob_teacher[0], total_steps_train)
+
                     writer.add_image("val_"+str(hist_ind)+"/output_student", color_transform_output(output_student[0].cpu().data), total_steps_train)
-                    writer.add_image("val_"+str(hist_ind)+"/max_class_probability_student", max_prob_student[0], total_steps_train)
                     if args.mean_teacher:
-                        writer.add_image("val_"+str(hist_ind)+"/classes_teacher", color_transform_classes_prob(output_teacher_prob[0].cpu().data), total_steps_train)
                         writer.add_image("val_"+str(hist_ind)+"/output_teacher", color_transform_output(output_teacher[0].cpu().data), total_steps_train)
-                        writer.add_image("val_"+str(hist_ind)+"/max_class_probability_teacher", max_prob_teacher[0], total_steps_train)
 
                     if epoch == start_epoch:
                         writer.add_image("val_"+str(hist_ind)+"/input", image1, total_steps_train)  # Visualize image used to compute histogram
@@ -723,7 +726,8 @@ def train(args, model_student, model_teacher, enc=False):
         print(f'VAL loss_teacher: {avg_loss_student_val:0.4} (epoch: {epoch}, step: {total_steps_val})', 
                 "// Avg time/img: %.4f s" % (sum(time_val) / len(time_val) / args.batch_size))
         if args.mean_teacher:
-            loss_dict = {'student': sum(epoch_loss_student_val) / len(epoch_loss_student_val), 'teacher': avg_loss_student_val}
+            avg_loss_teacher_val = sum(epoch_loss_teacher_val) / len(epoch_loss_teacher_val)
+            loss_dict = {'student': avg_loss_student_val, 'teacher': avg_loss_teacher_val}
             writer.add_scalars("val/epoch_loss", loss_dict, total_steps_val)
             if args.classification:
                 acc_dict = {'student': sum(epoch_acc_student_val) / len(epoch_acc_student_val), 'teacher':sum(epoch_acc_teacher_val) / len(epoch_acc_teacher_val)}
@@ -755,6 +759,8 @@ def train(args, model_student, model_teacher, enc=False):
             current_acc = sum(epoch_mean_acc_student_val) / len(epoch_mean_acc_student_val)
         else:   # regression
             current_acc = -avg_loss_student_val
+            if args.mean_teacher:
+                current_acc = -avg_loss_teacher_val
 
         epoch_loss_student_val = []
         if args.mean_teacher:
