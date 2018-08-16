@@ -31,8 +31,8 @@ import importlib
 
 from shutil import copyfile
 
-color_transform_target = Colorize(1.0, 2.0, remove_negative=True, extend=True, white_val=1.0)  # min_val, max_val, remove negative
-color_transform_output = Colorize(1.0, 2.0, remove_negative=False, extend=True, white_val=1.0)  # Automatic color based on tensor min/max val
+color_transform_target = Colorize(0.0, 2.0, remove_negative=True, extend=True, white_val=1.0)  # min_val, max_val, remove negative
+color_transform_output = Colorize(0.0, 2.0, remove_negative=False, extend=True, white_val=1.0)  # Automatic color based on tensor min/max val
 # color_transform_output = ColorizeMinMax()  # Automatic color based on tensor min/max val
 image_transform = ToPILImage()
 
@@ -74,8 +74,8 @@ def record_video(args, model_student, model_teacher, enc=False):
         tensor_type = 'long'
     else:   # regression
         tensor_type = 'float'
-    dataset_train = self_supervised_power(args.datadir, None, 'train', file_format="csv", label_name=args.label_name, tensor_type=tensor_type, subsample=1000)
-    dataset_val = self_supervised_power(args.datadir, None, 'val', file_format="csv", label_name=args.label_name, tensor_type=tensor_type, subsample=1000)
+    dataset_train = self_supervised_power(args.datadir, None, 'train', file_format="csv", label_name=args.label_name, tensor_type=tensor_type, subsample=0)
+    dataset_val = self_supervised_power(args.datadir, None, 'val', file_format="csv", label_name=args.label_name, tensor_type=tensor_type, subsample=0)
 
     if args.force_n_classes > 0:
         if args.classification:
