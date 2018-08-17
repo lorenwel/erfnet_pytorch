@@ -111,14 +111,13 @@ class SoftMaxConv (nn.Module):
 
 
 
-class DecoderBlock (nn.Module):
+class DecoderBlockSmall (nn.Module):
     def __init__(self, in_channels, out_channels, use_dropout=False):
         super().__init__()
 
         self.layers = nn.ModuleList()
 
         self.layers.append(UpsamplerBlock(in_channels, out_channels))
-        self.layers.append(non_bottleneck_1d(out_channels, 0, 1, use_dropout=use_dropout))
         self.layers.append(non_bottleneck_1d(out_channels, 0, 1, use_dropout=use_dropout))
 
     def forward(self, input):
@@ -128,6 +127,13 @@ class DecoderBlock (nn.Module):
             output = layer(output)
 
         return output
+
+
+
+class DecoderBlock (DecoderBlockSmall):
+    def __init__(self, in_channels, out_channels, use_dropout=False):
+        super().__init__(in_channels, out_channels, use_dropout)
+        self.layers.append(non_bottleneck_1d(out_channels, 0, 1, use_dropout=use_dropout))
 
 
 

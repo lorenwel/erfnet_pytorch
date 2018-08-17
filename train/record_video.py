@@ -118,11 +118,11 @@ def record_video(args, model_student, model_teacher, enc=False):
 
         start_time = time.time()
         with torch.no_grad():
-          if (args.force_n_classes) > 0:  # Captures both classification and regression with forced classes. 
-              # Forced into discrete classes. 
-              output_student_prob, output_student_power = model_student(inputs1)
-          else:
-              output_student = model_student(inputs1)
+            if (args.force_n_classes) > 0:  # Captures both classification and regression with forced classes. 
+                # Forced into discrete classes. 
+                output_student_prob, output_student_power = model_student(inputs1)
+            else:
+                output_student = model_student(inputs1)
         end_time = time.time()
         tot_inf_dur += end_time - start_time
 
@@ -176,11 +176,11 @@ def record_video(args, model_student, model_teacher, enc=False):
 
         start_time = time.time()
         with torch.no_grad():
-          if (args.force_n_classes) > 0:  # Captures both classification and regression with forced classes. 
-              # Forced into discrete classes. 
-              output_student_prob, output_student_power = model_student(inputs1)
-          else:
-              output_student = model_student(inputs1)
+            if (args.force_n_classes) > 0:  # Captures both classification and regression with forced classes. 
+                # Forced into discrete classes. 
+                output_student_prob, output_student_power = model_student(inputs1)
+            else:
+                output_student = model_student(inputs1)
         end_time = time.time()
         tot_inf_dur += end_time - start_time
 

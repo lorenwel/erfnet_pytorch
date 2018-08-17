@@ -37,10 +37,10 @@ from shutil import copyfile
 
 NUM_CHANNELS = 3
 # NUM_CLASSES = 20 #pascal=22, cityscapes=20
-NUM_HISTOGRAMS = 5
-NUM_IMG_PER_EPOCH = 10
+NUM_HISTOGRAMS = 10
+NUM_IMG_PER_EPOCH = 5
 # Optimizer params.
-LEARNING_RATE=5e-5
+LEARNING_RATE=1e-4
 BETAS=(0.9, 0.999)
 OPT_EPS=1e-04
 WEIGHT_DECAY=1e-6
@@ -847,6 +847,7 @@ def main(args):
     assert os.path.exists(args.model + ".py"), "Error: model definition not found"
     model_file = importlib.import_module(args.model)
     copyfile(args.model + ".py", savedir + '/' + args.model + ".py")
+    copyfile('erfnet_blocks.py', savedir + '/erfnet_blocks.py')
     
 
     print("========== NETWORK TRAINING ===========")
