@@ -13,9 +13,10 @@ from sensor_msgs.msg import Image
 
 
 
-SUBSCRIBER_TOPIC='/realsense_zr300/rgb/image_raw/'
-PROPERTY_TOPIC= 'output/scalar_image_raw'
-STD_TOPIC= 'output/std_image_raw'
+# SUBSCRIBER_TOPIC='/realsense_zr300/rgb/image_raw'
+SUBSCRIBER_TOPIC='/realsense_d435/color/image_raw'
+PROPERTY_TOPIC= 'inferencer/scalar_image_raw'
+STD_TOPIC= 'inferencer/std_image_raw'
 
 
 
@@ -50,10 +51,10 @@ class NetworkInferencer:
       # Do reshape, transpose and such.
       net_in = input.view(self.shape[0], self.shape[1], self.shape[2])  # Reshape to image dims
       net_in.transpose_(0,2)  # Move RGB to channel dimension
+      net_in.transpose_(1,2)  # Swap height and width
       net_in.div_(255.0)  # Create from 255 white to 1.0 white
 
       output = self.net(net_in.unsqueeze(0))  # Unsqueeze to create batch dimension
-      output = output.transpose(2,3)  # Swap height and widt back
 
     return output[0,:,:,:].cpu()
 
